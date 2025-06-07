@@ -113,6 +113,29 @@ stim::DetectorErrorModel common::merge_identical_errors(
   return out_dem;
 }
 
+stim::DetectorErrorModel common::remove_zero_probability_errors(
+    const stim::DetectorErrorModel& dem) {
+  stim::DetectorErrorModel out_dem;
+  for (const stim::DemInstruction& instruction : dem.flattened().instructions) {
+    switch (instruction.type) {
+      case stim::DemInstructionType::DEM_SHIFT_DETECTORS:
+        assert(false && "unreachable");
+        break;
+      case stim::DemInstructionType::DEM_ERROR:
+        if (instruction.arg_data[0] > 0) {
+          out_dem.append_dem_instruction(instruction);
+        }
+        break;
+      case stim::DemInstructionType::DEM_DETECTOR:
+        out_dem.append_dem_instruction(instruction);
+        break;
+      default:
+        assert(false && "unreachable");
+    }
+  }
+  return out_dem;
+}
+
 stim::DetectorErrorModel common::dem_from_counts(
     stim::DetectorErrorModel& orig_dem, const std::vector<size_t>& error_counts,
     size_t num_shots) {

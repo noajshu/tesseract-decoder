@@ -77,3 +77,26 @@ TEST(common, DemFromCountsSimpleTwoErrors) {
             stim::DemInstructionType::DEM_ERROR);
   EXPECT_NEAR(flat.instructions[1].arg_data[0], 0.35, 1e-9);
 }
+
+TEST(common, RemoveZeroProbabilityErrors) {
+  stim::DetectorErrorModel dem(R"DEM(
+        error(0.1) D0
+        error(0) D1
+        error(0.2) D2
+        detector(0, 0, 0) D0
+        detector(0, 0, 0) D1
+        detector(0, 0, 0) D2
+      )DEM");
+
+  stim::DetectorErrorModel cleaned =
+      common::remove_zero_probability_errors(dem);
+
+  EXPECT_EQ(cleaned.count_errors(), 2);
+  auto flat = cleaned.flattened();
+  ASSERT_EQ(flat.instructions[0].type,
+            stim::DemInstructionType::DEM_ERROR);
+  EXPECT_NEAR(flat.instructions[0].arg_data[0], 0.1, 1e-9);
+  ASSERT_EQ(flat.instructions[1].type,
+            stim::DemInstructionType::DEM_ERROR);
+  EXPECT_NEAR(flat.instructions[1].arg_data[0], 0.2, 1e-9);
+}
