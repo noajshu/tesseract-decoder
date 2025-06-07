@@ -132,7 +132,7 @@ stim::DetectorErrorModel common::dem_from_counts(
       case stim::DemInstructionType::DEM_ERROR: {
         double est_probability =
             double(error_counts.at(ei)) / double(num_shots);
-        // Ignore zero-probability errors
+        // Ignore zero-probability errors but always advance the index
         if (instruction.arg_data[0] > 0) {
           out_dem.append_error_instruction(est_probability,
                                            instruction.target_data, /*tag=*/"");
