@@ -130,14 +130,14 @@ stim::DetectorErrorModel common::dem_from_counts(
         assert(false && "unreachable");
         break;
       case stim::DemInstructionType::DEM_ERROR: {
+        double est_probability =
+            double(error_counts.at(ei)) / double(num_shots);
         // Ignore zero-probability errors
         if (instruction.arg_data[0] > 0) {
-          double est_probability =
-              double(error_counts.at(ei)) / double(num_shots);
           out_dem.append_error_instruction(est_probability,
                                            instruction.target_data, /*tag=*/"");
-          ++ei;
         }
+        ++ei;
         break;
       }
       case stim::DemInstructionType::DEM_DETECTOR: {
