@@ -72,6 +72,7 @@ struct Args {
   size_t pqlimit;
 
   bool verbose = false;
+  bool synthesis = false;
   bool print_stats = false;
 
   bool has_observables() {
@@ -337,6 +338,7 @@ struct Args {
     config.at_most_two_errors_per_detector = at_most_two_errors_per_detector;
     config.pqlimit = pqlimit;
     config.verbose = verbose;
+    config.synthesis = synthesis;
   }
 };
 
@@ -501,6 +503,10 @@ int main(int argc, char* argv[]) {
       .help("Increases output verbosity")
       .flag()
       .store_into(args.verbose);
+  program.add_argument("--synthesis")
+      .help("Enable synthesis-based improvement of decoding")
+      .flag()
+      .store_into(args.synthesis);
   program.add_argument("--print-stats")
       .help(
           "Prints out the number of shots (and number of errors, if known) "

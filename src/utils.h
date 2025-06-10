@@ -44,6 +44,16 @@ void sample_shots(uint64_t sample_seed, stim::Circuit& circuit,
 std::vector<common::Error> get_errors_from_dem(
     const stim::DetectorErrorModel& dem);
 
+// Builds a graph where each detector has edges to other detectors that
+// participate in the same error.
+std::vector<std::vector<int>> build_detector_graph(
+    const std::vector<std::vector<int>>& edets, size_t num_detectors);
+
+// Builds a graph where each error has edges to other errors that share a
+// detector.
+std::vector<std::vector<size_t>> build_error_graph(
+    const std::vector<std::vector<int>>& edets, size_t num_detectors);
+
 std::vector<std::string> get_files_recursive(const std::string& directory_path);
 
 #endif  // __TESSERACT_UTILS_H__

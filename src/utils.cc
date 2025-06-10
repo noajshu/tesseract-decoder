@@ -113,6 +113,58 @@ std::vector<common::Error> get_errors_from_dem(
   return errors;
 }
 
+std::vector<std::vector<int>> build_detector_graph(
+    const std::vector<std::vector<int>>& edets, size_t num_detectors) {
+  std::vector<std::unordered_set<int>> neighbors_set(num_detectors);
+  for (const auto& dets : edets) {
+    for (size_t i = 0; i < dets.size(); ++i) {
+      for (size_t j = i + 1; j < dets.size(); ++j) {
+        int d1 = dets[i];
+        int d2 = dets[j];
+        if (d1 == d2) continue;
+        neighbors_set[d1].insert(d2);
+        neighbors_set[d2].insert(d1);
+      }
+    }
+  }
+  std::vector<std::vector<int>> graph(num_detectors);
+  for (size_t d = 0; d < num_detectors; ++d) {
+    graph[d] = std::vector<int>(neighbors_set[d].begin(),
+                                neighbors_set[d].end());
+  }
+  return graph;
+}
+
+std::vector<std::vector<size_t>> build_error_graph(
+    const std::vector<std::vector<int>>& edets, size_t num_detectors) {
+  std::vector<std::vector<size_t>> d2e(num_detectors);
+  for (size_t ei = 0; ei < edets.size(); ++ei) {
+    for (int d : edets[ei]) {
+      d2e[d].push_back(ei);
+    }
+  }
+
+  std::vector<std::unordered_set<size_t>> neighbors_set(edets.size());
+  for (size_t d = 0; d < num_detectors; ++d) {
+    const auto& es = d2e[d];
+    for (size_t i = 0; i < es.size(); ++i) {
+      for (size_t j = i + 1; j < es.size(); ++j) {
+        size_t e1 = es[i];
+        size_t e2 = es[j];
+        if (e1 == e2) continue;
+        neighbors_set[e1].insert(e2);
+        neighbors_set[e2].insert(e1);
+      }
+    }
+  }
+  std::vector<std::vector<size_t>> graph(edets.size());
+  for (size_t e = 0; e < edets.size(); ++e) {
+    graph[e] = std::vector<size_t>(neighbors_set[e].begin(),
+                                   neighbors_set[e].end());
+  }
+  return graph;
+}
+
 std::vector<std::string> get_files_recursive(
     const std::string& directory_path) {
   std::vector<std::string> file_paths;
