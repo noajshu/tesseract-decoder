@@ -4,6 +4,7 @@
 
 A Search-Based Decoder for Quantum Error Correction.
 
+<img width="25%" alt="Tesseract logo" src="./docs/images/tesseract-logo.svg">
 [![Licensed under the Apache 2.0 open-source license](https://img.shields.io/badge/License-Apache%202.0-3c60b1.svg?logo=opensourceinitiative\&logoColor=white\&style=flat-square)](https://github.com/quantumlib/tesseract-decoder/blob/main/LICENSE)
 ![C++](https://img.shields.io/badge/C++-20-fcbc2c?style=flat-square&logo=C%2B%2B&logoColor=white)
 
