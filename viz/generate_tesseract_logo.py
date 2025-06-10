@@ -33,24 +33,32 @@ def project_point(point):
     return (x - 0.5 * z, y - 0.5 * z)
 
 
-def generate_cube(angles):
-    return [rotate_point(v, angles) for v in BASE_VERTICES]
+def generate_cube(angles, scale=1.0):
+    """Return cube vertices rotated by given angles and scaled."""
+    rotated = [rotate_point(v, angles) for v in BASE_VERTICES]
+    return [(x * scale, y * scale, z * scale) for x, y, z in rotated]
 
 
-def scale_project(vertices):
-    projected = [project_point(v) for v in vertices]
-    xs = [p[0] for p in projected]
-    ys = [p[1] for p in projected]
+def project_scale(cube1, cube2):
+    """Project both cubes to 2D using a shared scaling for relative size."""
+    p1 = [project_point(v) for v in cube1]
+    p2 = [project_point(v) for v in cube2]
+
+    xs = [pt[0] for pt in p1 + p2]
+    ys = [pt[1] for pt in p1 + p2]
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
-    width, height = max_x - min_x, max_y - min_y
-    scale = 80 / max(width, height)
-    result = []
-    for x, y in projected:
-        px = (x - min_x) * scale + 10
-        py = (y - min_y) * scale + 10
-        result.append((px, py))
-    return result
+    scale = 80 / max(max_x - min_x, max_y - min_y)
+
+    def apply(points):
+        out = []
+        for x, y in points:
+            px = (x - min_x) * scale + 10
+            py = (y - min_y) * scale + 10
+            out.append((px, py))
+        return out
+
+    return apply(p1), apply(p2)
 
 
 def svg_lines(points1, points2):
@@ -71,13 +79,14 @@ def svg_lines(points1, points2):
 
 
 def main(out_path="docs/images/tesseract-logo.svg"):
-    angles1 = [random.uniform(-0.35, 0.35) for _ in range(3)]
-    angles2 = [random.uniform(-0.35, 0.35) for _ in range(3)]
-    cube1 = generate_cube(angles1)
-    cube2 = generate_cube(angles2)
-    proj1 = scale_project(cube1)
-    proj2 = scale_project(cube2)
-    lines = svg_lines(proj1, proj2)
+    angles_outer = [random.uniform(-0.35, 0.35) for _ in range(3)]
+    angles_inner = [random.uniform(-0.35, 0.35) for _ in range(3)]
+
+    outer = generate_cube(angles_outer, scale=1.0)
+    inner = generate_cube(angles_inner, scale=0.5)
+
+    proj_outer, proj_inner = project_scale(outer, inner)
+    lines = svg_lines(proj_outer, proj_inner)
 
     with open(out_path, "w") as f:
         f.write("<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 100 100'>\n")
