@@ -14,6 +14,10 @@
 
 #include "common.h"
 
+#include <algorithm>
+#include <cmath>
+#include <queue>
+
 std::string common::Symptom::str() {
   std::string s = "Symptom{";
   for (size_t d : detectors) {
@@ -238,28 +242,66 @@ std::vector<size_t> common::find_redundant_errors(
     }
   }
 
+  // Map each unique detector set to the minimum cost error with that set.
+  std::unordered_map<std::vector<int>, double, VecHash> min_cost_by_set;
+  min_cost_by_set.reserve(errors.size());
+  for (const auto& e : errors) {
+    auto it = min_cost_by_set.find(e.detectors);
+    if (it == min_cost_by_set.end() || e.cost < it->second) {
+      min_cost_by_set[e.detectors] = e.cost;
+    }
+  }
+
+  // Priority-queue Dijkstra search over detector sets.
+  struct Node {
+    double cost;
+    std::vector<int> dets;
+  };
+  struct NodeCmp {
+    bool operator()(const Node& a, const Node& b) const { return a.cost > b.cost; }
+  };
+  std::priority_queue<Node, std::vector<Node>, NodeCmp> pq;
   std::unordered_map<std::vector<int>, double, VecHash> best;
   best[{}] = 0.0;
-  for (const auto& e : errors) {
-    std::vector<std::pair<std::vector<int>, double>> updates;
-    updates.reserve(best.size());
-    for (const auto& [k, v] : best) {
-      auto nk = xor_detectors(k, e.detectors);
-      double nv = v + e.cost;
-      auto it = best.find(nk);
-      if (it == best.end() || nv < it->second) {
-        updates.push_back({std::move(nk), nv});
-      }
+  pq.push({0.0, {}});
+
+  double max_goal_cost = 0.0;
+  for (const auto& [k, v] : min_cost_by_set) {
+    max_goal_cost = std::max(max_goal_cost, v);
+  }
+
+  std::vector<std::pair<std::vector<int>, double>> transitions;
+  transitions.reserve(min_cost_by_set.size());
+  for (const auto& [k, v] : min_cost_by_set) {
+    transitions.push_back({k, v});
+  }
+
+  while (!pq.empty()) {
+    Node cur = pq.top();
+    pq.pop();
+    auto it_best = best.find(cur.dets);
+    if (it_best == best.end() || cur.cost > it_best->second + 1e-12) {
+      continue;
     }
-    for (auto& [nk, nv] : updates) {
-      auto it = best.find(nk);
-      if (it == best.end() || nv < it->second) {
-        best[std::move(nk)] = nv;
+    if (cur.cost > max_goal_cost) {
+      continue;
+    }
+    for (const auto& [det, c] : transitions) {
+      double nc = cur.cost + c;
+      if (nc > max_goal_cost) {
+        continue;
+      }
+      std::vector<int> nd = xor_detectors(cur.dets, det);
+      auto it2 = best.find(nd);
+      if (it2 == best.end() || nc + 1e-12 < it2->second) {
+        best[nd] = nc;
+        pq.push({nc, std::move(nd)});
       }
     }
   }
 
   std::vector<size_t> redundant;
+  redundant.reserve(errors.size());
   for (size_t i = 0; i < errors.size(); ++i) {
     auto it = best.find(errors[i].detectors);
     if (it != best.end() && it->second + 1e-12 < errors[i].cost) {
