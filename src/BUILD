@@ -141,6 +141,9 @@ cc_test(
     srcs = ["common.test.cc"],
     copts = OPT_COPTS,
     linkopts = OPT_LINKOPTS,
+    data = [
+        "//testdata:all_files",
+    ],
     linkstatic = True,
     deps = [
         ":libcommon",
@@ -192,6 +195,18 @@ cc_binary(
         ":libsimplex",
         "@argparse",
         "@nlohmann_json//:json",
+    ],
+)
+
+cc_binary(
+    name = "dem_stats",
+    srcs = ["dem_stats_main.cc"],
+    copts = OPT_COPTS,
+    linkopts = OPT_LINKOPTS,
+    deps = [
+        ":libcommon",
+        "@argparse",
+        "@stim//:stim_lib",
     ],
 )
 

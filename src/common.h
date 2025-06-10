@@ -84,6 +84,11 @@ stim::DetectorErrorModel dem_from_counts(
     stim::DetectorErrorModel& orig_dem, const std::vector<size_t>& error_counts,
     size_t num_shots);
 
+// Returns the indices of errors in the detector error model that have a
+// strictly higher cost than some combination of other errors producing the same
+// set of detectors.
+std::vector<size_t> find_redundant_errors(const stim::DetectorErrorModel& dem);
+
 }  // namespace common
 
 #endif

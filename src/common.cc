@@ -181,3 +181,90 @@ stim::DetectorErrorModel common::dem_from_counts(
   }
   return out_dem;
 }
+
+namespace {
+// Returns the symmetric difference of two sorted vectors of detector indices.
+std::vector<int> xor_detectors(const std::vector<int>& a,
+                               const std::vector<int>& b) {
+  std::vector<int> out;
+  size_t i = 0, j = 0;
+  while (i < a.size() || j < b.size()) {
+    if (j >= b.size() || (i < a.size() && a[i] < b[j])) {
+      out.push_back(a[i++]);
+    } else if (i >= a.size() || b[j] < a[i]) {
+      out.push_back(b[j++]);
+    } else {
+      // elements are equal
+      ++i;
+      ++j;
+    }
+  }
+  return out;
+}
+
+struct VecHash {
+  size_t operator()(const std::vector<int>& v) const {
+    size_t h = 0;
+    for (int x : v) {
+      h ^= std::hash<int>{}(x) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    }
+    return h;
+  }
+};
+}  // namespace
+
+std::vector<size_t> common::find_redundant_errors(
+    const stim::DetectorErrorModel& dem) {
+  struct ErrorData {
+    std::vector<int> detectors;
+    double cost;
+  };
+  std::vector<ErrorData> errors;
+  for (const auto& ins : dem.flattened().instructions) {
+    if (ins.type == stim::DemInstructionType::DEM_ERROR && ins.arg_data[0] > 0) {
+      double p = ins.arg_data[0];
+      double c = -std::log(p / (1 - p));
+      std::set<int> dets_set;
+      for (const auto& t : ins.target_data) {
+        if (t.is_relative_detector_id()) {
+          if (dets_set.count(t.val())) {
+            dets_set.erase(t.val());
+          } else {
+            dets_set.insert(t.val());
+          }
+        }
+      }
+      errors.push_back({std::vector<int>(dets_set.begin(), dets_set.end()), c});
+    }
+  }
+
+  std::unordered_map<std::vector<int>, double, VecHash> best;
+  best[{}] = 0.0;
+  for (const auto& e : errors) {
+    std::vector<std::pair<std::vector<int>, double>> updates;
+    updates.reserve(best.size());
+    for (const auto& [k, v] : best) {
+      auto nk = xor_detectors(k, e.detectors);
+      double nv = v + e.cost;
+      auto it = best.find(nk);
+      if (it == best.end() || nv < it->second) {
+        updates.push_back({std::move(nk), nv});
+      }
+    }
+    for (auto& [nk, nv] : updates) {
+      auto it = best.find(nk);
+      if (it == best.end() || nv < it->second) {
+        best[std::move(nk)] = nv;
+      }
+    }
+  }
+
+  std::vector<size_t> redundant;
+  for (size_t i = 0; i < errors.size(); ++i) {
+    auto it = best.find(errors[i].detectors);
+    if (it != best.end() && it->second + 1e-12 < errors[i].cost) {
+      redundant.push_back(i);
+    }
+  }
+  return redundant;
+}
