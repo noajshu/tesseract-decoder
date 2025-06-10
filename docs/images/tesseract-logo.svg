@@ -2,15 +2,14 @@
   <defs>
     <style>.edge{stroke:#5f6368;stroke-width:2;fill:none}</style>
   </defs>
-  <path d="M50 10 A40 40 0 0 1 90 50" stroke="#4285f4" stroke-width="5" fill="none"/>
-  <path d="M90 50 A40 40 0 0 1 50 90" stroke="#ea4335" stroke-width="5" fill="none"/>
-  <path d="M50 90 A40 40 0 0 1 10 50" stroke="#fbbc05" stroke-width="5" fill="none"/>
-  <path d="M10 50 A40 40 0 0 1 50 10" stroke="#34a853" stroke-width="5" fill="none"/>
-  <rect x="25" y="25" width="30" height="30" class="edge"/>
-  <rect x="45" y="45" width="30" height="30" class="edge"/>
-  <line x1="25" y1="25" x2="45" y2="45" class="edge"/>
-  <line x1="55" y1="25" x2="75" y2="45" class="edge"/>
-  <line x1="25" y1="55" x2="45" y2="75" class="edge"/>
-  <line x1="55" y1="55" x2="75" y2="75" class="edge"/>
-  <text x="50" y="98" fill="#5f6368">Tesseract</text>
+  <!-- outer cube -->
+  <rect x="25" y="25" width="50" height="50" class="edge"/>
+  <!-- rotated inner cube -->
+  <polygon points="30.8,41.0 59.0,30.8 69.2,59.0 41.0,69.2" class="edge"/>
+  <!-- connecting edges -->
+  <line x1="25" y1="25" x2="30.8" y2="41.0" class="edge"/>
+  <line x1="75" y1="25" x2="59.0" y2="30.8" class="edge"/>
+  <line x1="75" y1="75" x2="69.2" y2="59.0" class="edge"/>
+  <line x1="25" y1="75" x2="41.0" y2="69.2" class="edge"/>
+  <text x="50" y="95" fill="#5f6368">Tesseract</text>
 </svg>
