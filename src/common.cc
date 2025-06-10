@@ -14,6 +14,10 @@
 
 #include "common.h"
 
+#include <algorithm>
+#include <cmath>
+#include <queue>
+
 std::string common::Symptom::str() {
   std::string s = "Symptom{";
   for (size_t d : detectors) {
@@ -180,4 +184,129 @@ stim::DetectorErrorModel common::dem_from_counts(
     }
   }
   return out_dem;
+}
+
+namespace {
+// Returns the symmetric difference of two sorted vectors of detector indices.
+std::vector<int> xor_detectors(const std::vector<int>& a,
+                               const std::vector<int>& b) {
+  std::vector<int> out;
+  size_t i = 0, j = 0;
+  while (i < a.size() || j < b.size()) {
+    if (j >= b.size() || (i < a.size() && a[i] < b[j])) {
+      out.push_back(a[i++]);
+    } else if (i >= a.size() || b[j] < a[i]) {
+      out.push_back(b[j++]);
+    } else {
+      // elements are equal
+      ++i;
+      ++j;
+    }
+  }
+  return out;
+}
+
+struct VecHash {
+  size_t operator()(const std::vector<int>& v) const {
+    size_t h = 0;
+    for (int x : v) {
+      h ^= std::hash<int>{}(x) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    }
+    return h;
+  }
+};
+}  // namespace
+
+std::vector<size_t> common::find_redundant_errors(
+    const stim::DetectorErrorModel& dem) {
+  struct ErrorData {
+    std::vector<int> detectors;
+    double cost;
+  };
+  std::vector<ErrorData> errors;
+  for (const auto& ins : dem.flattened().instructions) {
+    if (ins.type == stim::DemInstructionType::DEM_ERROR && ins.arg_data[0] > 0) {
+      double p = ins.arg_data[0];
+      double c = -std::log(p / (1 - p));
+      std::set<int> dets_set;
+      for (const auto& t : ins.target_data) {
+        if (t.is_relative_detector_id()) {
+          if (dets_set.count(t.val())) {
+            dets_set.erase(t.val());
+          } else {
+            dets_set.insert(t.val());
+          }
+        }
+      }
+      errors.push_back({std::vector<int>(dets_set.begin(), dets_set.end()), c});
+    }
+  }
+
+  // Map each unique detector set to the minimum cost error with that set.
+  std::unordered_map<std::vector<int>, double, VecHash> min_cost_by_set;
+  min_cost_by_set.reserve(errors.size());
+  for (const auto& e : errors) {
+    auto it = min_cost_by_set.find(e.detectors);
+    if (it == min_cost_by_set.end() || e.cost < it->second) {
+      min_cost_by_set[e.detectors] = e.cost;
+    }
+  }
+
+  // Priority-queue Dijkstra search over detector sets.
+  struct Node {
+    double cost;
+    std::vector<int> dets;
+  };
+  struct NodeCmp {
+    bool operator()(const Node& a, const Node& b) const { return a.cost > b.cost; }
+  };
+  std::priority_queue<Node, std::vector<Node>, NodeCmp> pq;
+  std::unordered_map<std::vector<int>, double, VecHash> best;
+  best[{}] = 0.0;
+  pq.push({0.0, {}});
+
+  double max_goal_cost = 0.0;
+  for (const auto& [k, v] : min_cost_by_set) {
+    max_goal_cost = std::max(max_goal_cost, v);
+  }
+
+  std::vector<std::pair<std::vector<int>, double>> transitions;
+  transitions.reserve(min_cost_by_set.size());
+  for (const auto& [k, v] : min_cost_by_set) {
+    transitions.push_back({k, v});
+  }
+
+  while (!pq.empty()) {
+    Node cur = pq.top();
+    pq.pop();
+    auto it_best = best.find(cur.dets);
+    if (it_best == best.end() || cur.cost > it_best->second + 1e-12) {
+      continue;
+    }
+    if (cur.cost > max_goal_cost) {
+      continue;
+    }
+    for (const auto& [det, c] : transitions) {
+      double nc = cur.cost + c;
+      if (nc > max_goal_cost) {
+        continue;
+      }
+      std::vector<int> nd = xor_detectors(cur.dets, det);
+      auto it2 = best.find(nd);
+      if (it2 == best.end() || nc + 1e-12 < it2->second) {
+        best[nd] = nc;
+        pq.push({nc, std::move(nd)});
+      }
+    }
+  }
+
+  std::vector<size_t> redundant;
+  redundant.reserve(errors.size());
+  for (size_t i = 0; i < errors.size(); ++i) {
+    auto it = best.find(errors[i].detectors);
+    if (it != best.end() && it->second + 1e-12 < errors[i].cost) {
+      redundant.push_back(i);
+    }
+  }
+  return redundant;
 }

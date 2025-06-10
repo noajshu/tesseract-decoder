@@ -16,6 +16,17 @@
 
 #include "gtest/gtest.h"
 #include "stim.h"
+#include <cstdlib>
+#include <filesystem>
+
+static std::string runfile_path(const std::string& rel) {
+  const char* srcdir = std::getenv("TEST_SRCDIR");
+  const char* workspace = std::getenv("TEST_WORKSPACE");
+  if (srcdir && workspace) {
+    return std::string(srcdir) + "/" + workspace + "/" + rel;
+  }
+  return rel;
+}
 
 TEST(common, ErrorsStructFromDemInstruction) {
   // Test a pathological DEM error instruction
@@ -104,4 +115,22 @@ TEST(common, RemoveZeroProbabilityErrors) {
   ASSERT_EQ(flat.instructions[1].type,
             stim::DemInstructionType::DEM_ERROR);
   EXPECT_NEAR(flat.instructions[1].arg_data[0], 0.2, 1e-9);
+}
+
+TEST(common, FindRedundantErrorsSmallCircuit) {
+  std::string path = runfile_path(
+      "testdata/colorcodes/r=3,d=3,p=0.002,noise=si1000,c=superdense_color_code_X,q=13,gates=cz.stim");
+  FILE* f = fopen(path.c_str(), "r");
+  ASSERT_NE(f, nullptr);
+  stim::Circuit circuit = stim::Circuit::from_file(f);
+  fclose(f);
+  stim::DetectorErrorModel dem = stim::ErrorAnalyzer::circuit_to_detector_error_model(
+      circuit, /*decompose_errors=*/false, /*fold_loops=*/true,
+      /*allow_gauge_detectors=*/true, /*approximate_disjoint_errors_threshold=*/1,
+      /*ignore_decomposition_failures=*/false,
+      /*block_decomposition_from_introducing_remnant_edges=*/false);
+  dem = common::remove_zero_probability_errors(dem);
+  auto redund = common::find_redundant_errors(dem);
+  // Computed via python script: this circuit has 14 redundant errors
+  EXPECT_EQ(redund.size(), 14);
 }
