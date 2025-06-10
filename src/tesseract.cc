@@ -17,6 +17,9 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <set>
+#include <queue>
+#include "utils.h"
 
 bool Node::operator>(const Node& other) const {
   return cost > other.cost || (cost == other.cost && num_dets < other.num_dets);
@@ -70,6 +73,7 @@ void TesseractDecoder::initialize_structures(size_t num_detectors) {
   }
 
   eneighbors.resize(num_errors);
+  egraph = build_error_graph(edets, num_detectors);
   std::vector<std::unordered_set<size_t>> edets_sets(edets.size());
   for (size_t ei = 0; ei < edets.size(); ++ei) {
     edets_sets[ei] =
@@ -112,6 +116,7 @@ void TesseractDecoder::decode_to_errors(
     const std::vector<uint64_t>& detections) {
   std::vector<size_t> best_errors;
   double best_cost = std::numeric_limits<double>::max();
+  std::vector<std::vector<size_t>> all_errors;
   assert(config.det_orders.size());
   int max_det_beam = config.det_beam;
   if (config.beam_climbing) {
@@ -120,6 +125,9 @@ void TesseractDecoder::decode_to_errors(
       size_t det_order = beam % config.det_orders.size();
       decode_to_errors(detections, det_order);
       double this_cost = cost_from_errors(predicted_errors_buffer);
+      if (config.synthesis) {
+        all_errors.push_back(predicted_errors_buffer);
+      }
       if (!low_confidence_flag && this_cost < best_cost) {
         best_errors = predicted_errors_buffer;
         best_cost = this_cost;
@@ -137,6 +145,9 @@ void TesseractDecoder::decode_to_errors(
          ++det_order) {
       decode_to_errors(detections, det_order);
       double this_cost = cost_from_errors(predicted_errors_buffer);
+      if (config.synthesis) {
+        all_errors.push_back(predicted_errors_buffer);
+      }
       if (!low_confidence_flag && this_cost < best_cost) {
         best_errors = predicted_errors_buffer;
         best_cost = this_cost;
@@ -154,6 +165,15 @@ void TesseractDecoder::decode_to_errors(
   config.det_beam = max_det_beam;
   predicted_errors_buffer = best_errors;
   low_confidence_flag = best_cost == std::numeric_limits<double>::max();
+  if (config.synthesis) {
+    if (all_errors.empty()) {
+      all_errors.push_back(best_errors);
+    }
+    // Apply synthesis-based local search to improve best_errors
+    auto current = predicted_errors_buffer;
+    synthesis_optimize(all_errors, current);
+    predicted_errors_buffer = current;
+  }
 }
 
 bool QNode::operator>(const QNode& other) const {
@@ -479,5 +499,81 @@ void TesseractDecoder::decode_shots(
   obs_predicted.resize(shots.size());
   for (size_t i = 0; i < shots.size(); ++i) {
     obs_predicted[i] = decode(shots[i].hits);
+  }
+}
+
+void TesseractDecoder::synthesis_optimize(
+    const std::vector<std::vector<size_t>>& all_error_sets,
+    std::vector<size_t>& best_errors) {
+  if (all_error_sets.size() < 2) return;
+
+  std::set<std::vector<size_t>> move_set;
+
+  // Build a library of candidate moves from pairwise differences
+  for (size_t i = 0; i + 1 < all_error_sets.size(); ++i) {
+    std::unordered_set<size_t> set_i(all_error_sets[i].begin(),
+                                     all_error_sets[i].end());
+    for (size_t j = i + 1; j < all_error_sets.size(); ++j) {
+      std::unordered_set<size_t> delta_set = set_i;
+      for (size_t e : all_error_sets[j]) {
+        if (!delta_set.insert(e).second) {
+          delta_set.erase(e);
+        }
+      }
+      if (delta_set.empty()) continue;
+
+      std::unordered_set<size_t> visited;
+      for (size_t e : delta_set) {
+        if (visited.count(e)) continue;
+        std::vector<size_t> comp;
+        std::queue<size_t> q;
+        q.push(e);
+        visited.insert(e);
+        while (!q.empty()) {
+          size_t cur = q.front();
+          q.pop();
+          comp.push_back(cur);
+          for (size_t ne : egraph[cur]) {
+            if (delta_set.count(ne) && !visited.count(ne)) {
+              visited.insert(ne);
+              q.push(ne);
+            }
+          }
+        }
+        std::sort(comp.begin(), comp.end());
+        move_set.insert(comp);
+      }
+    }
+  }
+
+  if (move_set.empty()) return;
+
+  std::vector<char> active(num_errors, false);
+  for (size_t e : best_errors) active[e] = true;
+  double current_cost = cost_from_errors(best_errors);
+
+  bool improved = true;
+  while (improved) {
+    improved = false;
+    for (const auto& move : move_set) {
+      double delta_cost = 0;
+      for (size_t e : move) {
+        delta_cost += active[e] ? -errors[e].likelihood_cost
+                                : errors[e].likelihood_cost;
+      }
+      if (delta_cost < 0) {
+        for (size_t e : move) {
+          active[e] = !active[e];
+        }
+        current_cost += delta_cost;
+        improved = true;
+        break;
+      }
+    }
+  }
+
+  best_errors.clear();
+  for (size_t e = 0; e < active.size(); ++e) {
+    if (active[e]) best_errors.push_back(e);
   }
 }

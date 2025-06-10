@@ -34,6 +34,7 @@ struct TesseractConfig {
   bool no_revisit_dets = false;
   bool at_most_two_errors_per_detector = false;
   bool verbose;
+  bool synthesis = false;
   size_t pqlimit = std::numeric_limits<size_t>::max();
   std::vector<std::vector<size_t>> det_orders;
   double det_penalty = 0;
@@ -95,6 +96,7 @@ struct TesseractDecoder {
   std::vector<std::vector<int>> d2e;
   std::vector<std::vector<int>> eneighbors;
   std::vector<std::vector<int>> edets;
+  std::vector<std::vector<size_t>> egraph;
   size_t num_detectors;
   size_t num_errors;
 
@@ -103,6 +105,9 @@ struct TesseractDecoder {
                      const std::vector<size_t>& det_counts) const;
   void to_node(const QNode& qnode, const std::vector<char>& shot_dets,
                size_t det_order, Node& node) const;
+  void synthesis_optimize(
+      const std::vector<std::vector<size_t>>& all_error_sets,
+      std::vector<size_t>& best_errors);
 };
 
 #endif  // TESSERACT_DECODER_H
