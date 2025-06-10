@@ -20,6 +20,8 @@
 #include <unordered_map>
 #include <vector>
 #include <unordered_set>
+#include <tsl/robin_map.h>
+#include <tsl/robin_set.h>
 
 #include "common.h"
 #include "stim.h"

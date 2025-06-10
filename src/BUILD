@@ -104,6 +104,7 @@ cc_library(
     linkopts = OPT_LINKOPTS,
     deps = [
         ":libutils",
+        "@robin_map//:robin_map",
     ],
 )
 

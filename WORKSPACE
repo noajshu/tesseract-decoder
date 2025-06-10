@@ -115,3 +115,16 @@ http_archive(
   sha256 = "d0a116e91f64a4a2d8fb7590c34242df92258a61ec644b79127951e821b47be6",
   urls = ["https://github.com/pybind/pybind11/archive/v2.13.6.zip"],
 )
+
+ROBIN_MAP_VERSION = "1.4.0"
+ROBIN_MAP_SHA256 = "7930dbf9634acfc02686d87f615c0f4f33135948130b8922331c16d90a03250c"
+
+http_archive(
+    name = "robin_map",
+    sha256 = ROBIN_MAP_SHA256,
+    strip_prefix = "robin-map-" + ROBIN_MAP_VERSION,
+    urls = [
+        "https://github.com/Tessil/robin-map/archive/refs/tags/v" + ROBIN_MAP_VERSION + ".tar.gz",
+    ],
+    build_file = "//external:robin_map.BUILD",
+)
