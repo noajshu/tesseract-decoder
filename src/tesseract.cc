@@ -166,10 +166,7 @@ void TesseractDecoder::decode_to_errors(
   predicted_errors_buffer = best_errors;
   low_confidence_flag = best_cost == std::numeric_limits<double>::max();
   if (config.synthesis) {
-    if (all_errors.empty()) {
-      all_errors.push_back(best_errors);
-    }
-    // Apply synthesis-based local search to improve best_errors
+    // Apply synthesis-based local search to improve the best decoding
     auto current = predicted_errors_buffer;
     synthesis_optimize(all_errors, current);
     predicted_errors_buffer = current;
@@ -519,6 +516,11 @@ void TesseractDecoder::synthesis_optimize(
   if (all_error_sets.size() < 2)
     return;
 
+  if (config.verbose) {
+    std::cout << "synthesis_optimize: starting with " << all_error_sets.size()
+              << " decodings" << std::endl;
+  }
+
   std::set<std::vector<size_t>> move_set;
 
   // Build a library of candidate moves from pairwise differences
@@ -563,6 +565,11 @@ void TesseractDecoder::synthesis_optimize(
   if (move_set.empty())
     return;
 
+  if (config.verbose) {
+    std::cout << "synthesis_optimize: generated " << move_set.size()
+              << " candidate moves" << std::endl;
+  }
+
   std::vector<char> active(num_errors, false);
   for (size_t e : best_errors)
     active[e] = true;
@@ -572,6 +579,7 @@ void TesseractDecoder::synthesis_optimize(
 #endif
 
   bool improved = true;
+  size_t step = 0;
   while (improved) {
     improved = false;
     for (const auto &move : move_set) {
@@ -581,15 +589,27 @@ void TesseractDecoder::synthesis_optimize(
             active[e] ? -errors[e].likelihood_cost : errors[e].likelihood_cost;
       }
       if (delta_cost < 0) {
+        if (config.verbose) {
+          std::cout << "synthesis_optimize step " << step
+                    << ": applying move";
+          for (size_t e : move) std::cout << " " << e;
+          std::cout << " (delta_cost=" << delta_cost << ")" << std::endl;
+        }
         assert(current_cost + delta_cost < current_cost);
         for (size_t e : move) {
           active[e] = !active[e];
         }
         current_cost += delta_cost;
         improved = true;
+        ++step;
         break;
       }
     }
+  }
+
+  if (config.verbose) {
+    std::cout << "synthesis_optimize: final cost " << current_cost
+              << std::endl;
   }
 
 #ifndef NDEBUG
