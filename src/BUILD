@@ -66,13 +66,8 @@ cc_library(
 
 pybind_extension(
     name = "tesseract_decoder",
-    srcs = [
-        "common.pybind.h",
-        "tesseract.pybind.cc",
-    ],
-    deps = [
-        ":libcommon",
-    ],
+    srcs = ["tesseract.pybind.cc"],
+    deps = [":libtesseract"],
 )
 
 
