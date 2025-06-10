@@ -37,3 +37,12 @@ jobs:
 
     - name: Bazel tests
       run: bazel test src:all
+
+    - name: Build Python module
+      run: bazel build //src:tesseract_decoder
+
+    - name: Run Python tests
+      run: |
+        pip install pytest stim
+        export PYTHONPATH=$(pwd)/bazel-bin/src
+        pytest -v tests

@@ -82,6 +82,27 @@ To run a more exhaustive suite with additional shots and larger distances, set:
 TESSERACT_LONG_TESTS=1 bazel test //src:all
 ```
 
+### Python Module
+
+A minimal Python wrapper is also provided. Build it with:
+
+```bash
+bazel build //src:tesseract_decoder
+```
+
+Add the build output directory to `PYTHONPATH` to use the module:
+
+```bash
+export PYTHONPATH=$(bazel info bazel-bin)/src
+python -c "import tesseract_decoder"
+```
+
+Python tests can be run using:
+
+```bash
+PYTHONPATH=$(bazel info bazel-bin)/src pytest
+```
+
 
 ## Usage
 
