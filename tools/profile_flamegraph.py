@@ -56,7 +56,22 @@ def main():
     with open("perf.svg", "w") as out, open("perf.folded") as inp:
         run([str(fg_path / "flamegraph.pl")], stdin=inp, stdout=out)
 
+    with open("decode_to_errors.annotate", "w") as out:
+        run(
+            [
+                perf_bin,
+                "annotate",
+                "-i",
+                str(perf_data),
+                "-l",
+                "--stdio",
+                "decode_to_errors",
+            ],
+            stdout=out,
+        )
+
     print("Flamegraph written to perf.svg")
+    print("Line-level profile written to decode_to_errors.annotate")
 
 
 if __name__ == "__main__":
