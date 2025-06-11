@@ -18,6 +18,7 @@
 #include <queue>
 #include <algorithm>
 #include <numeric>
+#include <cstdint>
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -200,7 +201,7 @@ struct Args {
         auto graph = build_detector_graph(config.dem);
         std::uniform_int_distribution<size_t> dist_det(0, graph.size() - 1);
         for (size_t det_order = 0; det_order < num_det_orders; ++det_order) {
-          std::vector<size_t> perm;
+          std::vector<uint16_t> perm;
           perm.reserve(graph.size());
           std::vector<char> visited(graph.size(), false);
           std::queue<size_t> q;
@@ -230,8 +231,8 @@ struct Args {
               } while (visited[start]);
             }
           }
-          std::vector<size_t> inv_perm(graph.size());
-          for (size_t i = 0; i < perm.size(); ++i) {
+          std::vector<uint16_t> inv_perm(graph.size());
+          for (uint16_t i = 0; i < perm.size(); ++i) {
             inv_perm[perm[i]] = i;
           }
           config.det_orders[det_order] = inv_perm;
@@ -243,9 +244,9 @@ struct Args {
           // If there are no detector coordinates, just use the standard ordering
           // of the indices.
           for (size_t det_order = 0; det_order < num_det_orders; ++det_order) {
-            config.det_orders.emplace_back();
+            config.det_orders.emplace_back(config.dem.count_detectors());
             std::iota(config.det_orders.back().begin(),
-                      config.det_orders.front().end(), 0);
+                      config.det_orders.back().end(), 0);
           }
         } else {
           // Use the coordinates to order the detectors based on a random
@@ -264,15 +265,15 @@ struct Args {
                     detector_coords[i][j] * orientation_vector[j];
               }
             }
-            std::vector<size_t> perm(config.dem.count_detectors());
+            std::vector<uint16_t> perm(config.dem.count_detectors());
             std::iota(perm.begin(), perm.end(), 0);
             std::sort(perm.begin(), perm.end(),
                       [&](const size_t& i, const size_t& j) {
                         return inner_products[i] > inner_products[j];
                       });
             // Invert the permutation
-            std::vector<size_t> inv_perm(config.dem.count_detectors());
-            for (size_t i = 0; i < perm.size(); ++i) {
+            std::vector<uint16_t> inv_perm(config.dem.count_detectors());
+            for (uint16_t i = 0; i < perm.size(); ++i) {
               inv_perm[perm[i]] = i;
             }
             config.det_orders[det_order] = inv_perm;
@@ -611,7 +612,7 @@ int main(int argc, char* argv[]) {
                 shots[shot].obs_mask_as_u64() == obs_predicted[shot]) {
               // Only count the error uses for shots that did not have a logical
               // error, if we know the obs flips.
-              for (size_t ei : decoder.predicted_errors_buffer) {
+              for (uint16_t ei : decoder.predicted_errors_buffer) {
                 ++error_use[ei];
               }
             }

@@ -33,7 +33,7 @@ std::vector<std::vector<double>> get_detector_coords(
 
 // Builds an adjacency list graph where two detectors share an edge iff an error
 // in the model activates them both.
-std::vector<std::vector<size_t>> build_detector_graph(
+std::vector<std::vector<uint16_t>> build_detector_graph(
     const stim::DetectorErrorModel& dem);
 
 const double INF = std::numeric_limits<double>::infinity();

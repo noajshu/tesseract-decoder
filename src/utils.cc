@@ -51,10 +51,10 @@ std::vector<std::vector<double>> get_detector_coords(
   return detector_coords;
 }
 
-std::vector<std::vector<size_t>> build_detector_graph(
+std::vector<std::vector<uint16_t>> build_detector_graph(
     const stim::DetectorErrorModel& dem) {
-  size_t num_detectors = dem.count_detectors();
-  std::vector<std::vector<size_t>> neighbors(num_detectors);
+  uint16_t num_detectors = dem.count_detectors();
+  std::vector<std::vector<uint16_t>> neighbors(num_detectors);
   for (const stim::DemInstruction& instruction : dem.flattened().instructions) {
     if (instruction.type != stim::DemInstructionType::DEM_ERROR) {
       continue;
@@ -67,8 +67,8 @@ std::vector<std::vector<size_t>> build_detector_graph(
     }
     for (size_t i = 0; i < dets.size(); ++i) {
       for (size_t j = i + 1; j < dets.size(); ++j) {
-        size_t a = dets[i];
-        size_t b = dets[j];
+        uint16_t a = dets[i];
+        uint16_t b = dets[j];
         neighbors[a].push_back(b);
         neighbors[b].push_back(a);
       }

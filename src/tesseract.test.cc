@@ -15,6 +15,7 @@
 #include "tesseract.h"
 
 #include <vector>
+#include <cstdint>
 #include <cstdlib>
 
 #include "gtest/gtest.h"
@@ -62,7 +63,7 @@ bool simplex_test_compare(stim::DetectorErrorModel& dem,
                 << " simplex got solution with cost: " << simplex_cost
                 << std::endl;
       std::cout << "tesseract used errors ";
-      for (size_t ei : tesseract_decoder.predicted_errors_buffer) {
+      for (uint16_t ei : tesseract_decoder.predicted_errors_buffer) {
         std::cout << ei << ", ";
         std::cout << tesseract_decoder.errors[ei].str() << std::endl;
       }
