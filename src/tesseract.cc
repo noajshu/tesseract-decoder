@@ -171,23 +171,44 @@ void TesseractDecoder::to_node(const QNode& qnode,
   node.dets = shot_dets;
   node.blocked_errs.resize(0);
   node.blocked_errs.resize(num_errors, false);
+
+  // Precompute inverse detector ordering for fast comparisons
+  std::vector<size_t> det_rank(num_detectors);
+  for (size_t i = 0; i < num_detectors; ++i) {
+    det_rank[config.det_orders[det_order][i]] = i;
+  }
+  struct DetOrderCmp {
+    const std::vector<size_t> *rank;
+    bool operator()(size_t a, size_t b) const {
+      return (*rank)[a] < (*rank)[b];
+    }
+  } cmp{&det_rank};
+  std::set<size_t, DetOrderCmp> active_dets(cmp);
+  for (size_t d = 0; d < num_detectors; ++d) {
+    if (node.dets[d]) {
+      active_dets.insert(d);
+    }
+  }
+
   for (size_t ei : node.errs) {
     // Get the min index activated detector before updating the dets
-    size_t min_det = std::numeric_limits<size_t>::max();
-    for (size_t d = 0; d < num_detectors; ++d) {
-      if (node.dets[config.det_orders[det_order][d]]) {
-        min_det = config.det_orders[det_order][d];
-        break;
-      }
-    }
+    size_t min_det = active_dets.empty()
+                           ? std::numeric_limits<size_t>::max()
+                           : *active_dets.begin();
+
     // Reconstruct the blocked_errs
     for (size_t oei : d2e[min_det]) {
       node.blocked_errs[oei] = true;
       if (!config.at_most_two_errors_per_detector && oei == ei) break;
     }
 
-    // Reconstruct the dets
+    // Reconstruct the dets and keep the active set sorted
     for (size_t d : edets[ei]) {
+      if (node.dets[d]) {
+        active_dets.erase(d);
+      } else {
+        active_dets.insert(d);
+      }
       node.dets[d] = !node.dets[d];
       if (!node.dets[d] && config.at_most_two_errors_per_detector) {
         for (size_t oei : d2e[d]) {
