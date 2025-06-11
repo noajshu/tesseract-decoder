@@ -23,7 +23,7 @@ constexpr size_t T_COORD = 2;
 
 SimplexDecoder::SimplexDecoder(SimplexConfig _config) : config(_config) {
   config.dem = common::remove_zero_probability_errors(config.dem);
-  std::vector<double> detector_t_coords(config.dem.count_detectors());
+  std::vector<float> detector_t_coords(config.dem.count_detectors());
   for (const stim::DemInstruction& instruction :
        config.dem.flattened().instructions) {
     switch (instruction.type) {
@@ -43,14 +43,14 @@ SimplexDecoder::SimplexDecoder(SimplexConfig _config) : config(_config) {
         assert(false && "unreachable");
     }
   }
-  std::map<double, std::vector<size_t>> start_time_to_errors_map,
+  std::map<float, std::vector<size_t>> start_time_to_errors_map,
       end_time_to_errors_map;
-  std::set<double> times;
+  std::set<float> times;
   for (size_t ei = 0; ei < errors.size(); ++ei) {
-    double min_error_time = std::numeric_limits<double>::max();
-    double max_error_time = -std::numeric_limits<double>::max();
+    float min_error_time = std::numeric_limits<float>::max();
+    float max_error_time = -std::numeric_limits<float>::max();
     for (int d : errors[ei].symptom.detectors) {
-      double time = detector_t_coords[d];
+      float time = detector_t_coords[d];
       min_error_time = std::min(min_error_time, time);
       max_error_time = std::max(max_error_time, time);
       times.insert(time);
@@ -61,7 +61,7 @@ SimplexDecoder::SimplexDecoder(SimplexConfig _config) : config(_config) {
   start_time_to_errors.resize(times.size());
   end_time_to_errors.resize(times.size());
   size_t t = 0;
-  for (const double& time : times) {
+  for (const float& time : times) {
     start_time_to_errors[t] = start_time_to_errors_map[time];
     end_time_to_errors[t] = end_time_to_errors_map[time];
     ++t;
@@ -94,8 +94,8 @@ void SimplexDecoder::init_ilp() {
   // constrain them to be in the range -num_errors, num_errors, which is a safe
   // upper bound on how big they need to get.
   for (size_t d = errors.size(); d < num_vars; ++d) {
-    model->lp_.col_lower_[d] = -double(errors.size());
-    model->lp_.col_upper_[d] = double(errors.size());
+    model->lp_.col_lower_[d] = -static_cast<double>(errors.size());
+    model->lp_.col_upper_[d] = static_cast<double>(errors.size());
   }
 
   // There is one parity constraint for each detector
@@ -324,9 +324,9 @@ void SimplexDecoder::decode_to_errors(const std::vector<uint64_t>& detections) {
   }
 }
 
-double SimplexDecoder::cost_from_errors(
+float SimplexDecoder::cost_from_errors(
     const std::vector<size_t>& predicted_errors) {
-  double total_cost = 0;
+  float total_cost = 0;
   // Iterate over all errors and add to the mask
   for (size_t ei : predicted_errors_buffer) {
     total_cost += errors[ei].likelihood_cost;

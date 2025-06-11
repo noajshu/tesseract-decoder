@@ -46,17 +46,17 @@ struct Symptom {
 
 // Represents an error / weighted hyperedge
 struct Error {
-  double likelihood_cost;
-  double probability;
+  float likelihood_cost;
+  float probability;
   Symptom symptom;
   std::vector<bool> dets_array;
   Error() = default;
-  Error(double likelihood_cost, std::vector<int>& detectors,
+  Error(float likelihood_cost, std::vector<int>& detectors,
         ObservablesMask observables, std::vector<bool>& dets_array)
       : likelihood_cost(likelihood_cost),
         symptom{detectors, observables},
         dets_array(dets_array) {}
-  Error(double likelihood_cost, double probability, std::vector<int>& detectors,
+  Error(float likelihood_cost, float probability, std::vector<int>& detectors,
         ObservablesMask observables, std::vector<bool>& dets_array)
       : likelihood_cost(likelihood_cost),
         probability(probability),

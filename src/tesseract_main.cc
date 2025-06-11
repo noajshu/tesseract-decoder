@@ -18,6 +18,7 @@
 #include <queue>
 #include <algorithm>
 #include <numeric>
+#include <cstdint>
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -180,9 +181,9 @@ struct Args {
     {
       config.det_orders.resize(num_det_orders);
       std::mt19937_64 rng(det_order_seed);
-      std::normal_distribution<double> dist(/*mean=*/0, /*stddev=*/1);
+      std::normal_distribution<float> dist(/*mean=*/0, /*stddev=*/1);
 
-      std::vector<std::vector<double>> detector_coords =
+      std::vector<std::vector<float>> detector_coords =
           get_detector_coords(config.dem);
       if (verbose) {
         for (size_t d = 0; d < detector_coords.size(); ++d) {
@@ -200,7 +201,7 @@ struct Args {
         auto graph = build_detector_graph(config.dem);
         std::uniform_int_distribution<size_t> dist_det(0, graph.size() - 1);
         for (size_t det_order = 0; det_order < num_det_orders; ++det_order) {
-          std::vector<size_t> perm;
+          std::vector<uint16_t> perm;
           perm.reserve(graph.size());
           std::vector<char> visited(graph.size(), false);
           std::queue<size_t> q;
@@ -230,29 +231,29 @@ struct Args {
               } while (visited[start]);
             }
           }
-          std::vector<size_t> inv_perm(graph.size());
-          for (size_t i = 0; i < perm.size(); ++i) {
+          std::vector<uint16_t> inv_perm(graph.size());
+          for (uint16_t i = 0; i < perm.size(); ++i) {
             inv_perm[perm[i]] = i;
           }
           config.det_orders[det_order] = inv_perm;
         }
       } else {
-        std::vector<double> inner_products(config.dem.count_detectors());
+        std::vector<float> inner_products(config.dem.count_detectors());
 
         if (!detector_coords.size() || !detector_coords.at(0).size()) {
           // If there are no detector coordinates, just use the standard ordering
           // of the indices.
           for (size_t det_order = 0; det_order < num_det_orders; ++det_order) {
-            config.det_orders.emplace_back();
+            config.det_orders.emplace_back(config.dem.count_detectors());
             std::iota(config.det_orders.back().begin(),
-                      config.det_orders.front().end(), 0);
+                      config.det_orders.back().end(), 0);
           }
         } else {
           // Use the coordinates to order the detectors based on a random
           // orientation
           for (size_t det_order = 0; det_order < num_det_orders; ++det_order) {
             // Sample a direction
-            std::vector<double> orientation_vector;
+            std::vector<float> orientation_vector;
             for (size_t i = 0; i < detector_coords.at(0).size(); ++i) {
               orientation_vector.push_back(dist(rng));
             }
@@ -264,15 +265,15 @@ struct Args {
                     detector_coords[i][j] * orientation_vector[j];
               }
             }
-            std::vector<size_t> perm(config.dem.count_detectors());
+            std::vector<uint16_t> perm(config.dem.count_detectors());
             std::iota(perm.begin(), perm.end(), 0);
             std::sort(perm.begin(), perm.end(),
                       [&](const size_t& i, const size_t& j) {
                         return inner_products[i] > inner_products[j];
                       });
             // Invert the permutation
-            std::vector<size_t> inv_perm(config.dem.count_detectors());
-            for (size_t i = 0; i < perm.size(); ++i) {
+            std::vector<uint16_t> inv_perm(config.dem.count_detectors());
+            for (uint16_t i = 0; i < perm.size(); ++i) {
               inv_perm[perm[i]] = i;
             }
             config.det_orders[det_order] = inv_perm;
@@ -573,8 +574,8 @@ int main(int argc, char* argv[]) {
   std::atomic<size_t> next_unclaimed_shot;
   std::vector<std::atomic<bool>> finished(shots.size());
   std::vector<common::ObservablesMask> obs_predicted(shots.size());
-  std::vector<double> cost_predicted(shots.size());
-  std::vector<double> decoding_time_seconds(shots.size());
+  std::vector<float> cost_predicted(shots.size());
+  std::vector<float> decoding_time_seconds(shots.size());
   std::vector<std::atomic<bool>> low_confidence(shots.size());
   std::vector<std::thread> decoder_threads;
   std::vector<std::atomic<size_t>> error_use_totals(config.dem.count_errors());
@@ -611,7 +612,7 @@ int main(int argc, char* argv[]) {
                 shots[shot].obs_mask_as_u64() == obs_predicted[shot]) {
               // Only count the error uses for shots that did not have a logical
               // error, if we know the obs flips.
-              for (size_t ei : decoder.predicted_errors_buffer) {
+              for (uint16_t ei : decoder.predicted_errors_buffer) {
                 ++error_use[ei];
               }
             }
@@ -626,7 +627,7 @@ int main(int argc, char* argv[]) {
   }
   size_t num_errors = 0;
   size_t num_low_confidence = 0;
-  double total_time_seconds = 0;
+  float total_time_seconds = 0;
   size_t num_observables = config.dem.count_observables();
   size_t shot = 0;
   for (; shot < shots.size(); ++shot) {

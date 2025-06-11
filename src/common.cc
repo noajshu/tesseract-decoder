@@ -46,7 +46,8 @@ common::Error::Error(const stim::DemInstruction& error) {
   // Detectors in the set are already sorted order, which we need so that there
   // is a unique canonical representative for each set of detectors.
   std::vector<int> detectors(detectors_set.begin(), detectors_set.end());
-  likelihood_cost = -1 * std::log(probability / (1 - probability));
+  likelihood_cost = static_cast<float>(
+      -1 * std::log(probability / (1 - probability)));
   symptom.detectors = detectors;
   symptom.observables = observables;
 }
@@ -88,12 +89,12 @@ stim::DetectorErrorModel common::merge_identical_errors(
         assert(error.symptom.detectors.size());
         // Merge with existing error with the same symptom (if applicable)
         if (errors_by_symptom.find(error.symptom) != errors_by_symptom.end()) {
-          double p0 = errors_by_symptom[error.symptom].probability;
+          float p0 = errors_by_symptom[error.symptom].probability;
           error.probability =
               p0 * (1 - error.probability) + (1 - p0) * error.probability;
         }
-        error.likelihood_cost =
-            -1 * std::log(error.probability / (1 - error.probability));
+        error.likelihood_cost = static_cast<float>(
+            -1 * std::log(error.probability / (1 - error.probability)));
         errors_by_symptom[error.symptom] = error;
         break;
       }
@@ -164,8 +165,8 @@ stim::DetectorErrorModel common::dem_from_counts(
         assert(false && "unreachable");
         break;
       case stim::DemInstructionType::DEM_ERROR: {
-        double est_probability =
-            double(error_counts.at(ei)) / double(num_shots);
+        float est_probability =
+            static_cast<float>(error_counts.at(ei)) / static_cast<float>(num_shots);
         out_dem.append_error_instruction(est_probability,
                                          instruction.target_data, /*tag=*/"");
         ++ei;

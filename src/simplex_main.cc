@@ -445,8 +445,8 @@ int main(int argc, char* argv[]) {
   std::atomic<size_t> next_unclaimed_shot;
   std::vector<std::atomic<bool>> finished(shots.size());
   std::vector<common::ObservablesMask> obs_predicted(shots.size());
-  std::vector<double> cost_predicted(shots.size());
-  std::vector<double> decoding_time_seconds(shots.size());
+  std::vector<float> cost_predicted(shots.size());
+  std::vector<float> decoding_time_seconds(shots.size());
   std::vector<std::thread> decoder_threads;
   std::vector<std::atomic<size_t>> error_use_totals(config.dem.count_errors());
   bool has_obs = args.has_observables();
@@ -494,7 +494,7 @@ int main(int argc, char* argv[]) {
         }));
   }
   size_t num_errors = 0;
-  double total_time_seconds = 0;
+  float total_time_seconds = 0;
   size_t num_observables = config.dem.count_observables();
   size_t shot = 0;
   for (; shot < shots.size(); ++shot) {

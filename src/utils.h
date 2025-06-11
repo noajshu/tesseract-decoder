@@ -26,17 +26,17 @@
 #include "common.h"
 #include "stim.h"
 
-constexpr const double EPSILON = 1e-7;
+constexpr const float EPSILON = 1e-6f;
 
-std::vector<std::vector<double>> get_detector_coords(
+std::vector<std::vector<float>> get_detector_coords(
     stim::DetectorErrorModel& dem);
 
 // Builds an adjacency list graph where two detectors share an edge iff an error
 // in the model activates them both.
-std::vector<std::vector<size_t>> build_detector_graph(
+std::vector<std::vector<uint16_t>> build_detector_graph(
     const stim::DetectorErrorModel& dem);
 
-const double INF = std::numeric_limits<double>::infinity();
+const float INF = std::numeric_limits<float>::infinity();
 
 bool sampling_from_dem(uint64_t seed, size_t num_shots,
                        stim::DetectorErrorModel dem,

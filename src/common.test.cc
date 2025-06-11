@@ -52,10 +52,10 @@ TEST(common, DemFromCountsRejectsZeroProbabilityErrors) {
 
   EXPECT_EQ(flat.instructions[0].type,
             stim::DemInstructionType::DEM_ERROR);
-  EXPECT_NEAR(flat.instructions[0].arg_data[0], 0.1, 1e-9);
+  EXPECT_NEAR(flat.instructions[0].arg_data[0], 0.1f, 1e-6);
   ASSERT_EQ(flat.instructions[1].type,
             stim::DemInstructionType::DEM_ERROR);
-  EXPECT_NEAR(flat.instructions[1].arg_data[0], 0.4, 1e-9);
+  EXPECT_NEAR(flat.instructions[1].arg_data[0], 0.4f, 1e-6);
 }
 
 TEST(common, DemFromCountsSimpleTwoErrors) {
@@ -77,10 +77,10 @@ TEST(common, DemFromCountsSimpleTwoErrors) {
   ASSERT_GE(flat.instructions.size(), 2);
   EXPECT_EQ(flat.instructions[0].type,
             stim::DemInstructionType::DEM_ERROR);
-  EXPECT_NEAR(flat.instructions[0].arg_data[0], 0.25, 1e-9);
+  EXPECT_NEAR(flat.instructions[0].arg_data[0], 0.25f, 1e-6);
   EXPECT_EQ(flat.instructions[1].type,
             stim::DemInstructionType::DEM_ERROR);
-  EXPECT_NEAR(flat.instructions[1].arg_data[0], 0.35, 1e-9);
+  EXPECT_NEAR(flat.instructions[1].arg_data[0], 0.35f, 1e-6);
 }
 
 TEST(common, RemoveZeroProbabilityErrors) {
@@ -100,8 +100,8 @@ TEST(common, RemoveZeroProbabilityErrors) {
   auto flat = cleaned.flattened();
   ASSERT_EQ(flat.instructions[0].type,
             stim::DemInstructionType::DEM_ERROR);
-  EXPECT_NEAR(flat.instructions[0].arg_data[0], 0.1, 1e-9);
+  EXPECT_NEAR(flat.instructions[0].arg_data[0], 0.1f, 1e-6);
   ASSERT_EQ(flat.instructions[1].type,
             stim::DemInstructionType::DEM_ERROR);
-  EXPECT_NEAR(flat.instructions[1].arg_data[0], 0.2, 1e-9);
+  EXPECT_NEAR(flat.instructions[1].arg_data[0], 0.2f, 1e-6);
 }

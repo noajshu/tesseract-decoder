@@ -17,18 +17,19 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <cstdint>
 
 bool Node::operator>(const Node& other) const {
   return cost > other.cost || (cost == other.cost && num_dets < other.num_dets);
 }
 
-double TesseractDecoder::get_detcost(size_t d,
-                                     const std::vector<char>& blocked_errs,
-                                     const std::vector<size_t>& det_counts) const {
-  double min_cost = INF;
-  for (size_t ei : d2e[d]) {
+float TesseractDecoder::get_detcost(uint16_t d,
+                                    const std::vector<char>& blocked_errs,
+                                    const std::vector<uint16_t>& det_counts) const {
+  float min_cost = INF;
+  for (uint16_t ei : d2e[d]) {
     if (!blocked_errs[ei]) {
-      double ecost = errors[ei].likelihood_cost / det_counts[ei];
+      float ecost = errors[ei].likelihood_cost / det_counts[ei];
       min_cost = std::min(min_cost, ecost);
       assert(det_counts[ei]);
     }
@@ -55,14 +56,14 @@ TesseractDecoder::TesseractDecoder(TesseractConfig config_) : config(config_) {
   }
   num_detectors = config.dem.count_detectors();
   num_errors = config.dem.count_errors();
-  initialize_structures(config.dem.count_detectors());
+  initialize_structures(static_cast<uint16_t>(config.dem.count_detectors()));
 }
 
-void TesseractDecoder::initialize_structures(size_t num_detectors) {
+void TesseractDecoder::initialize_structures(uint16_t num_detectors) {
   d2e.resize(num_detectors);
   edets.resize(num_errors);
 
-  for (size_t ei = 0; ei < num_errors; ++ei) {
+  for (uint16_t ei = 0; ei < num_errors; ++ei) {
     edets[ei] = errors[ei].symptom.detectors;
     for (int d : edets[ei]) {
       d2e[d].push_back(ei);
@@ -70,12 +71,12 @@ void TesseractDecoder::initialize_structures(size_t num_detectors) {
   }
 
   eneighbors.resize(num_errors);
-  std::vector<std::unordered_set<size_t>> edets_sets(edets.size());
-  for (size_t ei = 0; ei < edets.size(); ++ei) {
+  std::vector<std::unordered_set<int>> edets_sets(edets.size());
+  for (uint16_t ei = 0; ei < edets.size(); ++ei) {
     edets_sets[ei] =
-        std::unordered_set<size_t>(edets[ei].begin(), edets[ei].end());
+        std::unordered_set<int>(edets[ei].begin(), edets[ei].end());
   }
-  for (size_t ei = 0; ei < num_errors; ++ei) {
+  for (uint16_t ei = 0; ei < num_errors; ++ei) {
     std::set<int> neighbor_set;
     for (int d : edets[ei]) {
       for (int oei : d2e[d]) {
@@ -110,8 +111,8 @@ struct VectorCharHash {
 
 void TesseractDecoder::decode_to_errors(
     const std::vector<uint64_t>& detections) {
-  std::vector<size_t> best_errors;
-  double best_cost = std::numeric_limits<double>::max();
+  std::vector<uint16_t> best_errors;
+  float best_cost = std::numeric_limits<float>::max();
   assert(config.det_orders.size());
   int max_det_beam = config.det_beam;
   if (config.beam_climbing) {
@@ -119,7 +120,7 @@ void TesseractDecoder::decode_to_errors(
       config.det_beam = beam;
       size_t det_order = beam % config.det_orders.size();
       decode_to_errors(detections, det_order);
-      double this_cost = cost_from_errors(predicted_errors_buffer);
+      float this_cost = cost_from_errors(predicted_errors_buffer);
       if (!low_confidence_flag && this_cost < best_cost) {
         best_errors = predicted_errors_buffer;
         best_cost = this_cost;
@@ -136,7 +137,7 @@ void TesseractDecoder::decode_to_errors(
     for (size_t det_order = 0; det_order < config.det_orders.size();
          ++det_order) {
       decode_to_errors(detections, det_order);
-      double this_cost = cost_from_errors(predicted_errors_buffer);
+      float this_cost = cost_from_errors(predicted_errors_buffer);
       if (!low_confidence_flag && this_cost < best_cost) {
         best_errors = predicted_errors_buffer;
         best_cost = this_cost;
@@ -153,7 +154,7 @@ void TesseractDecoder::decode_to_errors(
   }
   config.det_beam = max_det_beam;
   predicted_errors_buffer = best_errors;
-  low_confidence_flag = best_cost == std::numeric_limits<double>::max();
+  low_confidence_flag = best_cost == std::numeric_limits<float>::max();
 }
 
 bool QNode::operator>(const QNode& other) const {
@@ -171,26 +172,26 @@ void TesseractDecoder::to_node(const QNode& qnode,
   node.dets = shot_dets;
   node.blocked_errs.resize(0);
   node.blocked_errs.resize(num_errors, false);
-  for (size_t ei : node.errs) {
+  for (uint16_t ei : node.errs) {
     // Get the min index activated detector before updating the dets
-    size_t min_det = std::numeric_limits<size_t>::max();
-    for (size_t d = 0; d < num_detectors; ++d) {
+    uint16_t min_det = std::numeric_limits<uint16_t>::max();
+    for (uint16_t d = 0; d < num_detectors; ++d) {
       if (node.dets[config.det_orders[det_order][d]]) {
         min_det = config.det_orders[det_order][d];
         break;
       }
     }
     // Reconstruct the blocked_errs
-    for (size_t oei : d2e[min_det]) {
+    for (uint16_t oei : d2e[min_det]) {
       node.blocked_errs[oei] = true;
       if (!config.at_most_two_errors_per_detector && oei == ei) break;
     }
 
     // Reconstruct the dets
-    for (size_t d : edets[ei]) {
+    for (int d : edets[ei]) {
       node.dets[d] = !node.dets[d];
       if (!node.dets[d] && config.at_most_two_errors_per_detector) {
-        for (size_t oei : d2e[d]) {
+        for (uint16_t oei : d2e[d]) {
           node.blocked_errs[oei] = true;
         }
       }
@@ -214,18 +215,18 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       discovered_dets;
 
   size_t min_num_dets = detections.size();
-  std::vector<size_t> errs;
+  std::vector<uint16_t> errs;
   std::vector<char> blocked_errs(num_errors, false);
-  std::vector<size_t> det_counts(num_errors, 0);
+  std::vector<uint16_t> det_counts(num_errors, 0);
 
-  for (size_t d = 0; d < num_detectors; ++d) {
+  for (uint16_t d = 0; d < num_detectors; ++d) {
     if (!dets[d]) continue;
     for (int ei : d2e[d]) {
       ++det_counts[ei];
     }
   }
-  double initial_cost = 0.0;
-  for (size_t d = 0; d < num_detectors; ++d) {
+  float initial_cost = 0.0f;
+  for (uint16_t d = 0; d < num_detectors; ++d) {
     if (!dets[d]) continue;
     initial_cost += get_detcost(d, blocked_errs, det_counts);
   }
@@ -239,10 +240,10 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   size_t num_pq_pushed = 1;
   size_t max_num_dets = min_num_dets + det_beam;
   Node node;
-  std::vector<size_t> next_det_counts;
+  std::vector<uint16_t> next_det_counts;
   std::vector<char> next_next_blocked_errs;
   std::vector<char> next_dets;
-  std::vector<size_t> next_errs;
+  std::vector<uint16_t> next_errs;
 
   while (!pq.empty()) {
     const QNode qnode = pq.top();
@@ -256,12 +257,12 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
     if (node.num_dets == 0) {
       if (config.verbose) {
         std::cout << "activated_errors = ";
-        for (size_t oei : node.errs) {
+        for (uint16_t oei : node.errs) {
           std::cout << oei << ", ";
         }
         std::cout << std::endl;
         std::cout << "activated_dets = ";
-        for (size_t d = 0; d < num_detectors; ++d) {
+        for (uint16_t d = 0; d < num_detectors; ++d) {
           if (node.dets[d]) {
             std::cout << d << ", ";
           }
@@ -291,12 +292,12 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
                 << " max_num_dets = " << max_num_dets << " cost = " << node.cost
                 << std::endl;
       std::cout << "activated_errors = ";
-      for (size_t oei : node.errs) {
+      for (uint16_t oei : node.errs) {
         std::cout << oei << ", ";
       }
       std::cout << std::endl;
       std::cout << "activated_dets = ";
-      for (size_t d = 0; d < num_detectors; ++d) {
+      for (uint16_t d = 0; d < num_detectors; ++d) {
         if (node.dets[d]) {
           std::cout << d << ", ";
         }
@@ -315,8 +316,8 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
     }
 
     // Choose the min det to be the minimum index activated detector
-    size_t min_det = std::numeric_limits<size_t>::max();
-    for (size_t d = 0; d < num_detectors; ++d) {
+    uint16_t min_det = std::numeric_limits<uint16_t>::max();
+    for (uint16_t d = 0; d < num_detectors; ++d) {
       if (node.dets[config.det_orders[det_order][d]]) {
         min_det = config.det_orders[det_order][d];
         break;
@@ -324,8 +325,8 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
     }
 
     // Recompute the det counts
-    std::vector<size_t> det_counts(num_errors, 0);
-    for (size_t d = 0; d < num_detectors; ++d) {
+    std::vector<uint16_t> det_counts(num_errors, 0);
+    for (uint16_t d = 0; d < num_detectors; ++d) {
       if (!node.dets[d]) continue;
       for (int ei : d2e[d]) {
         ++det_counts[ei];
@@ -333,7 +334,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
     }
 
     // We cache as we recompute the det costs
-    std::vector<double> det_costs(num_detectors, -1);
+    std::vector<float> det_costs(num_detectors, -1);
     std::vector<char> next_blocked_errs = node.blocked_errs;
     if (config.at_most_two_errors_per_detector) {
       for (int ei : d2e[min_det]) {
@@ -345,15 +346,15 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
 
     // Consider activating any error of the lowest index activated detector
     next_det_counts = det_counts;
-    size_t last_ei = std::numeric_limits<size_t>::max();
-    for (size_t ei : d2e[min_det]) {
+    uint16_t last_ei = std::numeric_limits<uint16_t>::max();
+    for (uint16_t ei : d2e[min_det]) {
       if (node.blocked_errs[ei]) {
         continue;
       }
 
       // Uncompute the previous edits to the next det counts on the last
       // iteration
-      if (last_ei != std::numeric_limits<size_t>::max()) {
+      if (last_ei != std::numeric_limits<uint16_t>::max()) {
         for (int d : edets[last_ei]) {
           int fired = node.dets[d] ? 1 : -1;
           for (int oei : d2e[d]) {
@@ -369,9 +370,9 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       next_errs.push_back(ei);
 
       next_dets = node.dets;
-      double next_cost = node.cost + errors[ei].likelihood_cost;
+      float next_cost = node.cost + errors[ei].likelihood_cost;
 
-      size_t next_num_dets = node.num_dets;
+      uint16_t next_num_dets = node.num_dets;
       if (config.at_most_two_errors_per_detector) {
         next_next_blocked_errs = next_blocked_errs;
       }
@@ -385,7 +386,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
         }
 
         if (!next_dets[d] && config.at_most_two_errors_per_detector) {
-          for (size_t oei : d2e[d]) {
+          for (uint16_t oei : d2e[d]) {
             next_next_blocked_errs[oei] = true;
           }
         }
@@ -412,7 +413,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
           next_cost += get_detcost(d, config.at_most_two_errors_per_detector ? next_next_blocked_errs : next_blocked_errs, next_det_counts);
         }
       }
-      for (size_t od : eneighbors[ei]) {
+      for (int od : eneighbors[ei]) {
         if (!node.dets[od] || !next_dets[od]) continue;
         if (det_costs[od] == -1) {
           det_costs[od] =
@@ -447,21 +448,21 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   return;
 }
 
-double TesseractDecoder::cost_from_errors(
-    const std::vector<size_t>& predicted_errors) {
-  double total_cost = 0;
+float TesseractDecoder::cost_from_errors(
+    const std::vector<uint16_t>& predicted_errors) {
+  float total_cost = 0;
   // Iterate over all errors and add to the mask
-  for (size_t ei : predicted_errors_buffer) {
+  for (uint16_t ei : predicted_errors_buffer) {
     total_cost += errors[ei].likelihood_cost;
   }
   return total_cost;
 }
 
 common::ObservablesMask TesseractDecoder::mask_from_errors(
-    const std::vector<size_t>& predicted_errors) {
+    const std::vector<uint16_t>& predicted_errors) {
   common::ObservablesMask mask = 0;
   // Iterate over all errors and add to the mask
-  for (size_t ei : predicted_errors_buffer) {
+  for (uint16_t ei : predicted_errors_buffer) {
     mask ^= errors[ei].symptom.observables;
   }
   return mask;

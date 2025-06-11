@@ -19,6 +19,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <limits>
+#include <cstdint>
 #include <unordered_set>
 
 #include "common.h"
@@ -35,16 +37,16 @@ struct TesseractConfig {
   bool at_most_two_errors_per_detector = false;
   bool verbose;
   size_t pqlimit = std::numeric_limits<size_t>::max();
-  std::vector<std::vector<size_t>> det_orders;
+  std::vector<std::vector<uint16_t>> det_orders;
   double det_penalty = 0;
 };
 
 class Node {
  public:
-  std::vector<size_t> errs;
+  std::vector<uint16_t> errs;
   std::vector<char> dets;
-  double cost;
-  size_t num_dets;
+  float cost;
+  uint16_t num_dets;
   std::vector<char> blocked_errs;
 
   bool operator>(const Node& other) const;
@@ -52,9 +54,9 @@ class Node {
 
 class QNode {
  public:
-  double cost;
-  size_t num_dets;
-  std::vector<size_t> errs;
+  float cost;
+  uint16_t num_dets;
+  std::vector<uint16_t> errs;
 
   bool operator>(const QNode& other) const;
 };
@@ -75,18 +77,18 @@ struct TesseractDecoder {
   // Returns the bitwise XOR of all the observables bitmasks of all errors in
   // the predicted errors buffer.
   common::ObservablesMask mask_from_errors(
-      const std::vector<size_t>& predicted_errors);
+      const std::vector<uint16_t>& predicted_errors);
 
   // Returns the sum of the likelihood costs (minus-log-likelihood-ratios) of
   // all errors in the predicted errors buffer.
-  double cost_from_errors(const std::vector<size_t>& predicted_errors);
+  float cost_from_errors(const std::vector<uint16_t>& predicted_errors);
   common::ObservablesMask decode(const std::vector<uint64_t>& detections);
 
   void decode_shots(std::vector<stim::SparseShot>& shots,
                     std::vector<common::ObservablesMask>& obs_predicted);
 
   bool low_confidence_flag = false;
-  std::vector<size_t> predicted_errors_buffer;
+  std::vector<uint16_t> predicted_errors_buffer;
 
   int det_beam;
   std::vector<common::Error> errors;
@@ -95,12 +97,12 @@ struct TesseractDecoder {
   std::vector<std::vector<int>> d2e;
   std::vector<std::vector<int>> eneighbors;
   std::vector<std::vector<int>> edets;
-  size_t num_detectors;
-  size_t num_errors;
+  uint16_t num_detectors;
+  uint16_t num_errors;
 
-  void initialize_structures(size_t num_detectors);
-  double get_detcost(size_t d, const std::vector<char>& blocked_errs,
-                     const std::vector<size_t>& det_counts) const;
+  void initialize_structures(uint16_t num_detectors);
+  float get_detcost(uint16_t d, const std::vector<char>& blocked_errs,
+                    const std::vector<uint16_t>& det_counts) const;
   void to_node(const QNode& qnode, const std::vector<char>& shot_dets,
                size_t det_order, Node& node) const;
 };

@@ -47,13 +47,13 @@ void benchmark_decoder(Decoder& decoder, stim::Circuit& circuit,
     }
   };
 
-  double num_milliseconds = 0.0;
+  float num_milliseconds = 0.0f;
   auto start_time = std::chrono::steady_clock::now();
   do {
     benchmark_func();
     auto end_time = std::chrono::steady_clock::now();
     num_milliseconds =
-        std::chrono::duration<double, std::milli>(end_time - start_time)
+        std::chrono::duration<float, std::milli>(end_time - start_time)
             .count();
   } while (num_milliseconds < 1000.0);
   std::cout << (num_milliseconds / num_decoded) << " milliseconds per shot "

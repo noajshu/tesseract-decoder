@@ -63,7 +63,7 @@ struct SimplexDecoder {
       const std::vector<size_t>& predicted_errors);
   // Returns the sum of the likelihood costs (minus-log-likelihood-ratios) of
   // all errors in the predicted errors buffer.
-  double cost_from_errors(const std::vector<size_t>& predicted_errors);
+  float cost_from_errors(const std::vector<size_t>& predicted_errors);
   common::ObservablesMask decode(const std::vector<uint64_t>& detections);
 
   void decode_shots(std::vector<stim::SparseShot>& shots,
