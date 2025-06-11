@@ -37,11 +37,11 @@ def main():
         "--pqlimit", "200000",
         "--beam", "5",
         "--num-det-orders", "5",
-        "--sample-num-shots", "100",
+        "--sample-num-shots", "1000",
         "--det-order-seed", "13267562",
         "--circuit", "testdata/colorcodes/r=9,d=9,p=0.002,noise=si1000,c=superdense_color_code_X,q=121,gates=cz.stim",
         "--sample-seed", "717347",
-        "--threads", "4",
+        "--threads", "60",
         "--det-order-bfs",
     ]
 
