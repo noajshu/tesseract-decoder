@@ -181,6 +181,14 @@ void TesseractDecoder::to_node(const QNode &qnode,
   node.dets = shot_dets;
   node.blocked_errs.resize(0);
   node.blocked_errs.resize(num_errors, false);
+  node.det_counts.assign(num_errors, 0);
+  for (size_t d = 0; d < num_detectors; ++d) {
+    if (!node.dets[d])
+      continue;
+    for (size_t ei : d2e[d]) {
+      ++node.det_counts[ei];
+    }
+  }
   for (size_t ei : node.errs) {
     // Get the min index activated detector before updating the dets
     size_t min_det = std::numeric_limits<size_t>::max();
@@ -200,6 +208,10 @@ void TesseractDecoder::to_node(const QNode &qnode,
     // Reconstruct the dets
     for (size_t d : edets[ei]) {
       node.dets[d] = !node.dets[d];
+      int fired = node.dets[d] ? 1 : -1;
+      for (size_t oei : d2e[d]) {
+        node.det_counts[oei] += fired;
+      }
       if (!node.dets[d] && config.at_most_two_errors_per_detector) {
         for (size_t oei : d2e[d]) {
           node.blocked_errs[oei] = true;
@@ -226,7 +238,6 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t> &detections,
 
   size_t min_num_dets = detections.size();
   std::vector<size_t> errs;
-  std::vector<char> blocked_errs(num_errors, false);
 
   double initial_cost = 0.0;
   for (size_t d = 0; d < num_detectors; ++d) {
@@ -239,13 +250,11 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t> &detections,
     return;
   }
   // pq.push({errs, dets, initial_cost, min_num_dets, blocked_errs});
-  pq.push({initial_cost, min_num_dets, errs, true});
+  pq.push({initial_cost, min_num_dets, errs, /*detcosts_loose=*/true});
 
   size_t num_pq_pushed = 1;
   size_t max_num_dets = min_num_dets + det_beam;
   Node node;
-  std::vector<size_t> next_det_counts;
-  std::vector<char> next_next_blocked_errs;
   std::vector<char> next_dets;
   std::vector<size_t> next_errs;
 
@@ -263,22 +272,13 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t> &detections,
       for (size_t ei : node.errs) {
         exact_cost += errors[ei].likelihood_cost;
       }
-      std::vector<size_t> det_counts(num_errors, 0);
       for (size_t d = 0; d < num_detectors; ++d) {
         if (!node.dets[d])
           continue;
-        for (int ei : d2e[d]) {
-          ++det_counts[ei];
-        }
-      }
-      for (size_t d = 0; d < num_detectors; ++d) {
-        if (!node.dets[d])
-          continue;
-        exact_cost += get_detcost(d, node.blocked_errs, det_counts);
+        exact_cost += get_detcost(d, node.blocked_errs, node.det_counts);
       }
       qnode.cost = exact_cost;
       qnode.detcosts_loose = false;
-      node.cost = exact_cost;
       pq.push(qnode);
       continue;
     }
@@ -354,73 +354,20 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t> &detections,
       }
     }
 
-    // Recompute the det counts
-    std::vector<size_t> det_counts(num_errors, 0);
-    for (size_t d = 0; d < num_detectors; ++d) {
-      if (!node.dets[d])
-        continue;
-      for (int ei : d2e[d]) {
-        ++det_counts[ei];
-      }
-    }
-
-    // We cache as we recompute the det costs
-    std::vector<double> det_costs(num_detectors, -1);
-    std::vector<char> next_blocked_errs = node.blocked_errs;
-    if (config.at_most_two_errors_per_detector) {
-      for (int ei : d2e[min_det]) {
-        // Block all errors of this detector -- note this is an approximation
-        // where we insist at most 2 errors are incident to any detector
-        next_blocked_errs[ei] = true;
-      }
-    }
-
-    // Consider activating any error of the lowest index activated detector
-    next_det_counts = det_counts;
-    size_t last_ei = std::numeric_limits<size_t>::max();
+    // Explore activating any error attached to the lowest-index detector
     for (size_t ei : d2e[min_det]) {
       if (node.blocked_errs[ei]) {
         continue;
       }
 
-      // Uncompute the previous edits to the next det counts on the last
-      // iteration
-      if (last_ei != std::numeric_limits<size_t>::max()) {
-        for (int d : edets[last_ei]) {
-          int fired = node.dets[d] ? 1 : -1;
-          for (int oei : d2e[d]) {
-            next_det_counts[oei] += fired;
-          }
-        }
-      }
-
-      last_ei = ei;
-      next_blocked_errs[ei] = true;
-
       next_errs = node.errs;
       next_errs.push_back(ei);
 
       next_dets = node.dets;
-      double next_cost = node.cost + errors[ei].likelihood_cost;
-
       size_t next_num_dets = node.num_dets;
-      if (config.at_most_two_errors_per_detector) {
-        next_next_blocked_errs = next_blocked_errs;
-      }
-
       for (int d : edets[ei]) {
         next_dets[d] = !next_dets[d];
-        int fired = next_dets[d] ? 1 : -1;
-        next_num_dets += fired;
-        for (int oei : d2e[d]) {
-          next_det_counts[oei] += fired;
-        }
-
-        if (!next_dets[d] && config.at_most_two_errors_per_detector) {
-          for (size_t oei : d2e[d]) {
-            next_next_blocked_errs[oei] = true;
-          }
-        }
+        next_num_dets += next_dets[d] ? 1 : -1;
       }
 
       if (next_num_dets > max_num_dets) {
@@ -433,41 +380,17 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t> &detections,
         continue;
       }
 
-      for (int d : edets[ei]) {
-        if (node.dets[d]) {
-          if (det_costs[d] == -1) {
-            det_costs[d] = get_detcost(d, node.blocked_errs, det_counts);
-          }
-          next_cost -= det_costs[d];
-        } else {
-          next_cost += get_detcost(d,
-                                   config.at_most_two_errors_per_detector
-                                       ? next_next_blocked_errs
-                                       : next_blocked_errs,
-                                   next_det_counts);
-        }
+      double next_cost = 0.0;
+      for (size_t oei : next_errs) {
+        next_cost += errors[oei].likelihood_cost;
       }
-      for (size_t od : eneighbors[ei]) {
-        if (!node.dets[od] || !next_dets[od])
+      for (size_t d = 0; d < num_detectors; ++d) {
+        if (!next_dets[d])
           continue;
-        if (det_costs[od] == -1) {
-          det_costs[od] = get_detcost(od, node.blocked_errs, det_counts);
-        }
-        next_cost -= det_costs[od];
-        next_cost += get_detcost(od,
-                                 config.at_most_two_errors_per_detector
-                                     ? next_next_blocked_errs
-                                     : next_blocked_errs,
-                                 next_det_counts);
+        next_cost += det_cost_lower_bounds[d];
       }
 
-      if (next_cost == INF) {
-        continue;
-      }
-
-      // pq.push({next_errs, next_dets, next_cost, next_num_dets,
-      // next_blocked_errs});
-      pq.push({next_cost, next_num_dets, next_errs});
+      pq.push({next_cost, next_num_dets, next_errs, /*detcosts_loose=*/true});
       ++num_pq_pushed;
 
       if (num_pq_pushed > config.pqlimit) {

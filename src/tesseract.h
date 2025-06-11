@@ -46,6 +46,7 @@ public:
   double cost;
   size_t num_dets;
   std::vector<char> blocked_errs;
+  std::vector<size_t> det_counts;
 
   bool operator>(const Node &other) const;
 };
