@@ -26,11 +26,11 @@ double TesseractDecoder::get_detcost(size_t d,
                                      const std::vector<char>& blocked_errs,
                                      const std::vector<size_t>& det_counts) const {
   double min_cost = INF;
-  for (size_t ei : d2e[d]) {
-    if (!blocked_errs[ei]) {
-      double ecost = errors[ei].likelihood_cost / det_counts[ei];
+  for (const auto& info : d2e_info[d]) {
+    if (!blocked_errs[info.ei]) {
+      double ecost = info.likelihood_cost / det_counts[info.ei];
       min_cost = std::min(min_cost, ecost);
-      assert(det_counts[ei]);
+      assert(det_counts[info.ei]);
     }
   }
   return min_cost + config.det_penalty;
@@ -66,6 +66,14 @@ void TesseractDecoder::initialize_structures(size_t num_detectors) {
     edets[ei] = errors[ei].symptom.detectors;
     for (int d : edets[ei]) {
       d2e[d].push_back(ei);
+    }
+  }
+
+  d2e_info.resize(num_detectors);
+  for (size_t d = 0; d < num_detectors; ++d) {
+    d2e_info[d].reserve(d2e[d].size());
+    for (size_t ei : d2e[d]) {
+      d2e_info[d].push_back({ei, errors[ei].likelihood_cost});
     }
   }
 
