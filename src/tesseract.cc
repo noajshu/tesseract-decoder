@@ -110,7 +110,7 @@ struct VectorCharHash {
 
 void TesseractDecoder::decode_to_errors(
     const std::vector<uint64_t>& detections) {
-  std::vector<size_t> best_errors;
+  SmallVector<size_t> best_errors;
   double best_cost = std::numeric_limits<double>::max();
   assert(config.det_orders.size());
   int max_det_beam = config.det_beam;
@@ -214,7 +214,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       discovered_dets;
 
   size_t min_num_dets = detections.size();
-  std::vector<size_t> errs;
+  SmallVector<size_t> errs;
   std::vector<char> blocked_errs(num_errors, false);
   std::vector<size_t> det_counts(num_errors, 0);
 
@@ -242,7 +242,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   std::vector<size_t> next_det_counts;
   std::vector<char> next_next_blocked_errs;
   std::vector<char> next_dets;
-  std::vector<size_t> next_errs;
+  SmallVector<size_t> next_errs;
 
   while (!pq.empty()) {
     const QNode qnode = pq.top();
@@ -448,7 +448,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
 }
 
 double TesseractDecoder::cost_from_errors(
-    const std::vector<size_t>& predicted_errors) {
+    const SmallVector<size_t>& predicted_errors) {
   double total_cost = 0;
   // Iterate over all errors and add to the mask
   for (size_t ei : predicted_errors_buffer) {
@@ -458,7 +458,7 @@ double TesseractDecoder::cost_from_errors(
 }
 
 common::ObservablesMask TesseractDecoder::mask_from_errors(
-    const std::vector<size_t>& predicted_errors) {
+    const SmallVector<size_t>& predicted_errors) {
   common::ObservablesMask mask = 0;
   // Iterate over all errors and add to the mask
   for (size_t ei : predicted_errors_buffer) {

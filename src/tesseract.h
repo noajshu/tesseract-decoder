@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <vector>
 #include <unordered_set>
+#include "small_vector.h"
 
 #include "common.h"
 #include "stim.h"
@@ -41,7 +42,7 @@ struct TesseractConfig {
 
 class Node {
  public:
-  std::vector<size_t> errs;
+  SmallVector<size_t> errs;
   std::vector<char> dets;
   double cost;
   size_t num_dets;
@@ -54,7 +55,7 @@ class QNode {
  public:
   double cost;
   size_t num_dets;
-  std::vector<size_t> errs;
+  SmallVector<size_t> errs;
 
   bool operator>(const QNode& other) const;
 };
@@ -75,18 +76,18 @@ struct TesseractDecoder {
   // Returns the bitwise XOR of all the observables bitmasks of all errors in
   // the predicted errors buffer.
   common::ObservablesMask mask_from_errors(
-      const std::vector<size_t>& predicted_errors);
+      const SmallVector<size_t>& predicted_errors);
 
   // Returns the sum of the likelihood costs (minus-log-likelihood-ratios) of
   // all errors in the predicted errors buffer.
-  double cost_from_errors(const std::vector<size_t>& predicted_errors);
+  double cost_from_errors(const SmallVector<size_t>& predicted_errors);
   common::ObservablesMask decode(const std::vector<uint64_t>& detections);
 
   void decode_shots(std::vector<stim::SparseShot>& shots,
                     std::vector<common::ObservablesMask>& obs_predicted);
 
   bool low_confidence_flag = false;
-  std::vector<size_t> predicted_errors_buffer;
+  SmallVector<size_t> predicted_errors_buffer;
 
   int det_beam;
   std::vector<common::Error> errors;

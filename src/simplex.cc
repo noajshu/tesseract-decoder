@@ -325,7 +325,7 @@ void SimplexDecoder::decode_to_errors(const std::vector<uint64_t>& detections) {
 }
 
 double SimplexDecoder::cost_from_errors(
-    const std::vector<size_t>& predicted_errors) {
+    const SmallVector<size_t>& predicted_errors) {
   double total_cost = 0;
   // Iterate over all errors and add to the mask
   for (size_t ei : predicted_errors_buffer) {
@@ -335,7 +335,7 @@ double SimplexDecoder::cost_from_errors(
 }
 
 common::ObservablesMask SimplexDecoder::mask_from_errors(
-    const std::vector<size_t>& predicted_errors) {
+    const SmallVector<size_t>& predicted_errors) {
   common::ObservablesMask mask = 0;
   // Iterate over all errors and add to the mask
   for (size_t ei : predicted_errors_buffer) {
