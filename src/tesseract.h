@@ -91,8 +91,13 @@ struct TesseractDecoder {
   int det_beam;
   std::vector<common::Error> errors;
 
- private:
+private:
   std::vector<std::vector<int>> d2e;
+  struct DetectorErrorInfo {
+    size_t ei;
+    double likelihood_cost;
+  };
+  std::vector<std::vector<DetectorErrorInfo>> d2e_info;
   std::vector<std::vector<int>> eneighbors;
   std::vector<std::vector<int>> edets;
   size_t num_detectors;
