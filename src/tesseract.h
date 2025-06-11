@@ -54,6 +54,7 @@ public:
 class QNode {
 public:
   double cost;
+  double weak_cost;
   size_t num_dets;
   std::vector<size_t> errs;
   bool detcosts_loose = false;

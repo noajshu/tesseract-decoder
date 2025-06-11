@@ -249,8 +249,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t> &detections,
     low_confidence_flag = true;
     return;
   }
-  // pq.push({errs, dets, initial_cost, min_num_dets, blocked_errs});
-  pq.push({initial_cost, min_num_dets, errs, /*detcosts_loose=*/true});
+  pq.push({/*cost=*/initial_cost, /*weak_cost=*/initial_cost, min_num_dets, errs, /*detcosts_loose=*/true});
 
   size_t num_pq_pushed = 1;
   size_t max_num_dets = min_num_dets + det_beam;
@@ -379,18 +378,17 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t> &detections,
               discovered_dets[next_num_dets].end()) {
         continue;
       }
+      double next_cost = qnode.weak_cost + errors[ei].likelihood_cost;
+      
+      for (int d : edets[ei]) {
+        if (node.dets[d]) {
+          next_cost -= det_cost_lower_bounds[d];
+        } else {
+          next_cost += det_cost_lower_bounds[d];
+        }
+      }      
 
-      double next_cost = 0.0;
-      for (size_t oei : next_errs) {
-        next_cost += errors[oei].likelihood_cost;
-      }
-      for (size_t d = 0; d < num_detectors; ++d) {
-        if (!next_dets[d])
-          continue;
-        next_cost += det_cost_lower_bounds[d];
-      }
-
-      pq.push({next_cost, next_num_dets, next_errs, /*detcosts_loose=*/true});
+      pq.push({/*cost=*/next_cost, /*weak_cost=*/next_cost, next_num_dets, next_errs, /*detcosts_loose=*/true});
       ++num_pq_pushed;
 
       if (num_pq_pushed > config.pqlimit) {
