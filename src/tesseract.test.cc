@@ -35,7 +35,7 @@ bool simplex_test_compare(stim::DetectorErrorModel& dem,
 
   for (size_t shot = 0; shot < shots.size(); shot++) {
     tesseract_decoder.decode_to_errors(shots[shot].hits);
-    double tesseract_cost = tesseract_decoder.cost_from_errors(
+    float tesseract_cost = tesseract_decoder.cost_from_errors(
         tesseract_decoder.predicted_errors_buffer);
 
     if (tesseract_decoder.low_confidence_flag) {
@@ -48,7 +48,7 @@ bool simplex_test_compare(stim::DetectorErrorModel& dem,
     }
 
     simplex_decoder.decode_to_errors(shots[shot].hits);
-    double simplex_cost = simplex_decoder.cost_from_errors(
+    float simplex_cost = simplex_decoder.cost_from_errors(
         simplex_decoder.predicted_errors_buffer);
 
     // If there is a mismatch in weights, print diagnostic information

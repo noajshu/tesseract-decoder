@@ -25,9 +25,9 @@
 #include "common.h"
 #include "stim.h"
 
-std::vector<std::vector<double>> get_detector_coords(
+std::vector<std::vector<float>> get_detector_coords(
     stim::DetectorErrorModel& dem) {
-  std::vector<std::vector<double>> detector_coords;
+  std::vector<std::vector<float>> detector_coords;
   for (const stim::DemInstruction& instruction : dem.flattened().instructions) {
     switch (instruction.type) {
       case stim::DemInstructionType::DEM_SHIFT_DETECTORS:
@@ -37,9 +37,9 @@ std::vector<std::vector<double>> get_detector_coords(
         break;
       }
       case stim::DemInstructionType::DEM_DETECTOR: {
-        std::vector<double> coord;
+        std::vector<float> coord;
         for (const double& t : instruction.arg_data) {
-          coord.push_back(t);
+          coord.push_back(static_cast<float>(t));
         }
         detector_coords.push_back(coord);
         break;

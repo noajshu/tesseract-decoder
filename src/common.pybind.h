@@ -32,9 +32,9 @@ void add_common_module(py::module &root) {
       .def_readwrite("symptom", &common::Error::symptom)
       .def("__str__", &common::Error::str)
       .def(py::init<>())
-      .def(py::init<double, std::vector<int> &, common::ObservablesMask,
+      .def(py::init<float, std::vector<int> &, common::ObservablesMask,
                     std::vector<bool> &>())
-      .def(py::init<double, double, std::vector<int> &, common::ObservablesMask,
+      .def(py::init<float, float, std::vector<int> &, common::ObservablesMask,
                     std::vector<bool> &>());
 }
 

@@ -45,7 +45,7 @@ class Node {
  public:
   std::vector<uint16_t> errs;
   std::vector<char> dets;
-  double cost;
+  float cost;
   uint16_t num_dets;
   std::vector<char> blocked_errs;
 
@@ -54,7 +54,7 @@ class Node {
 
 class QNode {
  public:
-  double cost;
+  float cost;
   uint16_t num_dets;
   std::vector<uint16_t> errs;
 
@@ -81,7 +81,7 @@ struct TesseractDecoder {
 
   // Returns the sum of the likelihood costs (minus-log-likelihood-ratios) of
   // all errors in the predicted errors buffer.
-  double cost_from_errors(const std::vector<uint16_t>& predicted_errors);
+  float cost_from_errors(const std::vector<uint16_t>& predicted_errors);
   common::ObservablesMask decode(const std::vector<uint64_t>& detections);
 
   void decode_shots(std::vector<stim::SparseShot>& shots,
@@ -101,8 +101,8 @@ struct TesseractDecoder {
   uint16_t num_errors;
 
   void initialize_structures(uint16_t num_detectors);
-  double get_detcost(uint16_t d, const std::vector<char>& blocked_errs,
-                     const std::vector<uint16_t>& det_counts) const;
+  float get_detcost(uint16_t d, const std::vector<char>& blocked_errs,
+                    const std::vector<uint16_t>& det_counts) const;
   void to_node(const QNode& qnode, const std::vector<char>& shot_dets,
                size_t det_order, Node& node) const;
 };

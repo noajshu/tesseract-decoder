@@ -23,13 +23,13 @@ bool Node::operator>(const Node& other) const {
   return cost > other.cost || (cost == other.cost && num_dets < other.num_dets);
 }
 
-double TesseractDecoder::get_detcost(uint16_t d,
-                                     const std::vector<char>& blocked_errs,
-                                     const std::vector<uint16_t>& det_counts) const {
-  double min_cost = INF;
+float TesseractDecoder::get_detcost(uint16_t d,
+                                    const std::vector<char>& blocked_errs,
+                                    const std::vector<uint16_t>& det_counts) const {
+  float min_cost = INF;
   for (uint16_t ei : d2e[d]) {
     if (!blocked_errs[ei]) {
-      double ecost = errors[ei].likelihood_cost / det_counts[ei];
+      float ecost = errors[ei].likelihood_cost / det_counts[ei];
       min_cost = std::min(min_cost, ecost);
       assert(det_counts[ei]);
     }
@@ -112,7 +112,7 @@ struct VectorCharHash {
 void TesseractDecoder::decode_to_errors(
     const std::vector<uint64_t>& detections) {
   std::vector<uint16_t> best_errors;
-  double best_cost = std::numeric_limits<double>::max();
+  float best_cost = std::numeric_limits<float>::max();
   assert(config.det_orders.size());
   int max_det_beam = config.det_beam;
   if (config.beam_climbing) {
@@ -120,7 +120,7 @@ void TesseractDecoder::decode_to_errors(
       config.det_beam = beam;
       size_t det_order = beam % config.det_orders.size();
       decode_to_errors(detections, det_order);
-      double this_cost = cost_from_errors(predicted_errors_buffer);
+      float this_cost = cost_from_errors(predicted_errors_buffer);
       if (!low_confidence_flag && this_cost < best_cost) {
         best_errors = predicted_errors_buffer;
         best_cost = this_cost;
@@ -137,7 +137,7 @@ void TesseractDecoder::decode_to_errors(
     for (size_t det_order = 0; det_order < config.det_orders.size();
          ++det_order) {
       decode_to_errors(detections, det_order);
-      double this_cost = cost_from_errors(predicted_errors_buffer);
+      float this_cost = cost_from_errors(predicted_errors_buffer);
       if (!low_confidence_flag && this_cost < best_cost) {
         best_errors = predicted_errors_buffer;
         best_cost = this_cost;
@@ -154,7 +154,7 @@ void TesseractDecoder::decode_to_errors(
   }
   config.det_beam = max_det_beam;
   predicted_errors_buffer = best_errors;
-  low_confidence_flag = best_cost == std::numeric_limits<double>::max();
+  low_confidence_flag = best_cost == std::numeric_limits<float>::max();
 }
 
 bool QNode::operator>(const QNode& other) const {
@@ -225,7 +225,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       ++det_counts[ei];
     }
   }
-  double initial_cost = 0.0;
+  float initial_cost = 0.0f;
   for (uint16_t d = 0; d < num_detectors; ++d) {
     if (!dets[d]) continue;
     initial_cost += get_detcost(d, blocked_errs, det_counts);
@@ -334,7 +334,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
     }
 
     // We cache as we recompute the det costs
-    std::vector<double> det_costs(num_detectors, -1);
+    std::vector<float> det_costs(num_detectors, -1);
     std::vector<char> next_blocked_errs = node.blocked_errs;
     if (config.at_most_two_errors_per_detector) {
       for (int ei : d2e[min_det]) {
@@ -370,7 +370,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       next_errs.push_back(ei);
 
       next_dets = node.dets;
-      double next_cost = node.cost + errors[ei].likelihood_cost;
+      float next_cost = node.cost + errors[ei].likelihood_cost;
 
       uint16_t next_num_dets = node.num_dets;
       if (config.at_most_two_errors_per_detector) {
@@ -448,9 +448,9 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   return;
 }
 
-double TesseractDecoder::cost_from_errors(
+float TesseractDecoder::cost_from_errors(
     const std::vector<uint16_t>& predicted_errors) {
-  double total_cost = 0;
+  float total_cost = 0;
   // Iterate over all errors and add to the mask
   for (uint16_t ei : predicted_errors_buffer) {
     total_cost += errors[ei].likelihood_cost;
