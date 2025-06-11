@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import subprocess
 import shutil
 import sys
@@ -18,8 +19,12 @@ def ensure_flamegraph_repo(path: Path):
 
 
 def main():
-    if not shutil.which("perf"):
-        sys.exit("perf not found. Please install linux-tools to use this script.")
+    # Allow custom perf binary via PERF_BINARY environment variable (e.g. perf5)
+    perf_bin = os.environ.get("PERF_BINARY", "perf")
+    if not shutil.which(perf_bin):
+        sys.exit(
+            f"{perf_bin} not found. Please install linux-tools or set PERF_BINARY"
+        )
 
     fg_path = Path("FlameGraph")
     ensure_flamegraph_repo(fg_path)
@@ -40,10 +45,10 @@ def main():
         "--det-order-bfs",
     ]
 
-    run(["perf", "record", "-F", "99", "-g", "-o", str(perf_data), "--"] + tesseract_cmd)
+    run([perf_bin, "record", "-F", "99", "-g", "-o", str(perf_data), "--"] + tesseract_cmd)
 
     with open("perf.unfold", "w") as out:
-        run(["perf", "script", "-i", str(perf_data)], stdout=out)
+        run([perf_bin, "script", "-i", str(perf_data)], stdout=out)
 
     with open("perf.folded", "w") as out, open("perf.unfold") as inp:
         run([str(fg_path / "stackcollapse-perf.pl")], stdin=inp, stdout=out)
