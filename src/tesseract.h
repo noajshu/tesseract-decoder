@@ -56,7 +56,6 @@ class QNode {
   double cost;
   size_t num_dets;
   std::vector<size_t> errs;
-
   bool operator>(const QNode& other) const;
 };
 

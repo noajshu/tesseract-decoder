@@ -145,7 +145,7 @@ void TesseractDecoder::decode_to_errors(
          ++det_order) {
       decode_to_errors(detections, det_order);
       double this_cost = cost_from_errors(predicted_errors_buffer);
-      if (config.synthesis) {
+      if (!low_confidence_flag and config.synthesis) {
         all_errors.push_back(predicted_errors_buffer);
       }
       if (!low_confidence_flag && this_cost < best_cost) {
@@ -558,6 +558,13 @@ void TesseractDecoder::synthesis_optimize(
         }
         std::sort(comp.begin(), comp.end());
         move_set.insert(comp);
+        if (config.verbose) {
+          std::cout <<"got comp ";
+          for (size_t e : comp) {
+            std::cout << e << ", ";
+          }
+          std::cout<<std::endl;
+        }
       }
     }
   }
@@ -574,36 +581,46 @@ void TesseractDecoder::synthesis_optimize(
   for (size_t e : best_errors)
     active[e] = true;
   double current_cost = cost_from_errors(best_errors);
-#ifndef NDEBUG
-  const double original_cost = current_cost;
-#endif
+  if (config.verbose) {
+    std::cout <<"current_cost = "<<current_cost<<std::endl;
+  }
+  [[maybe_unused]] const double original_cost = current_cost;
 
   bool improved = true;
   size_t step = 0;
   while (improved) {
     improved = false;
+    double best_delta_cost = 0;
+    const std::vector<size_t> *best_move = nullptr;
+
+    // Find the best move in the neighborhood
     for (const auto &move : move_set) {
       double delta_cost = 0;
       for (size_t e : move) {
         delta_cost +=
             active[e] ? -errors[e].likelihood_cost : errors[e].likelihood_cost;
       }
-      if (delta_cost < 0) {
-        if (config.verbose) {
-          std::cout << "synthesis_optimize step " << step
-                    << ": applying move";
-          for (size_t e : move) std::cout << " " << e;
-          std::cout << " (delta_cost=" << delta_cost << ")" << std::endl;
-        }
-        assert(current_cost + delta_cost < current_cost);
-        for (size_t e : move) {
-          active[e] = !active[e];
-        }
-        current_cost += delta_cost;
-        improved = true;
-        ++step;
-        break;
+      if (delta_cost < best_delta_cost) {
+        best_delta_cost = delta_cost;
+        best_move = &move;
       }
+    }
+
+    // If an improving move was found, apply it
+    if (best_move) {
+      if (config.verbose) {
+        std::cout << "synthesis_optimize step " << step
+                  << ": applying best move";
+        for (size_t e : *best_move) std::cout << " " << e;
+        std::cout << " (delta_cost=" << best_delta_cost << ")" << std::endl;
+      }
+      assert(current_cost + best_delta_cost < current_cost);
+      for (size_t e : *best_move) {
+        active[e] = !active[e];
+      }
+      current_cost += best_delta_cost;
+      improved = true;
+      ++step;
     }
   }
 
@@ -612,9 +629,7 @@ void TesseractDecoder::synthesis_optimize(
               << std::endl;
   }
 
-#ifndef NDEBUG
   assert(current_cost <= original_cost);
-#endif
 
   best_errors.clear();
   for (size_t e = 0; e < active.size(); ++e) {
