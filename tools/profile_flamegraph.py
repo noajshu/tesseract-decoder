@@ -29,7 +29,8 @@ def main():
     fg_path = Path("FlameGraph")
     ensure_flamegraph_repo(fg_path)
 
-    run(["bazel", "build", "src:all"])
+    # Build with debug symbols so that perf annotate can attribute samples
+    run(["bazel", "build", "-c", "dbg", "src:all"])
 
     perf_data = Path("perf.data")
     tesseract_cmd = [
