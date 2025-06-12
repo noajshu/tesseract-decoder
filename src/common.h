@@ -50,6 +50,7 @@ struct Error {
   double probability;
   Symptom symptom;
   std::vector<bool> dets_array;
+  std::vector<double> cost_by_count;
   Error() = default;
   Error(double likelihood_cost, std::vector<int>& detectors,
         ObservablesMask observables, std::vector<bool>& dets_array)

@@ -28,9 +28,10 @@ double TesseractDecoder::get_detcost(size_t d,
   double min_cost = INF;
   for (size_t ei : d2e[d]) {
     if (!blocked_errs[ei]) {
-      double ecost = errors[ei].likelihood_cost / det_counts[ei];
+      size_t count = det_counts[ei];
+      assert(count < errors[ei].cost_by_count.size() && count);
+      double ecost = errors[ei].cost_by_count[count];
       min_cost = std::min(min_cost, ecost);
-      assert(det_counts[ei]);
     }
   }
   return min_cost + config.det_penalty;
@@ -64,6 +65,11 @@ void TesseractDecoder::initialize_structures(size_t num_detectors) {
 
   for (size_t ei = 0; ei < num_errors; ++ei) {
     edets[ei] = errors[ei].symptom.detectors;
+    size_t max_count = edets[ei].size();
+    errors[ei].cost_by_count.resize(max_count + 1, INF);
+    for (size_t c = 1; c <= max_count; ++c) {
+      errors[ei].cost_by_count[c] = errors[ei].likelihood_cost / c;
+    }
     for (int d : edets[ei]) {
       d2e[d].push_back(ei);
     }
