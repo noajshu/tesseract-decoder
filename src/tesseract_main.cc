@@ -14,6 +14,7 @@
 
 #include <argparse/argparse.hpp>
 #include <atomic>
+#include <array>
 #include <fstream>
 #include <queue>
 #include <algorithm>
@@ -578,6 +579,7 @@ int main(int argc, char* argv[]) {
   std::vector<std::atomic<bool>> low_confidence(shots.size());
   std::vector<std::thread> decoder_threads;
   std::vector<std::atomic<size_t>> error_use_totals(config.dem.count_errors());
+  std::array<std::atomic<size_t>, 5> detcost_totals{};
   bool has_obs = args.has_observables();
   std::atomic<bool> worker_threads_please_terminate = false;
   std::atomic<size_t> num_worker_threads_active;
@@ -588,7 +590,7 @@ int main(int argc, char* argv[]) {
     decoder_threads.push_back(std::thread(
         [&config, &next_unclaimed_shot, &shots, &obs_predicted, &cost_predicted,
          &decoding_time_seconds, &low_confidence, &finished, &error_use_totals,
-         &has_obs, &worker_threads_please_terminate,
+         &detcost_totals, &has_obs, &worker_threads_please_terminate,
          &num_worker_threads_active]() {
           TesseractDecoder decoder(config);
           std::vector<size_t> error_use(config.dem.count_errors());
@@ -621,6 +623,11 @@ int main(int argc, char* argv[]) {
           for (size_t ei = 0; ei < error_use_totals.size(); ++ei) {
             error_use_totals[ei] += error_use[ei];
           }
+          detcost_totals[0] += decoder.detcost_counters.first;
+          detcost_totals[1] += decoder.detcost_counters.second;
+          detcost_totals[2] += decoder.detcost_counters.third;
+          detcost_totals[3] += decoder.detcost_counters.fourth;
+          detcost_totals[4] += decoder.detcost_counters.fifth;
           --num_worker_threads_active;
         }));
   }
@@ -729,5 +736,10 @@ int main(int argc, char* argv[]) {
     }
     std::cout << " total_time_seconds = " << total_time_seconds;
     std::cout << std::endl;
+    std::cout << "get_detcost counts: first=" << detcost_totals[0]
+              << " second=" << detcost_totals[1]
+              << " third=" << detcost_totals[2]
+              << " fourth=" << detcost_totals[3]
+              << " fifth=" << detcost_totals[4] << std::endl;
   }
 }

@@ -22,9 +22,10 @@ bool Node::operator>(const Node& other) const {
   return cost > other.cost || (cost == other.cost && num_dets < other.num_dets);
 }
 
-double TesseractDecoder::get_detcost(size_t d,
-                                     const std::vector<char>& blocked_errs,
-                                     const std::vector<size_t>& det_counts) const {
+double TesseractDecoder::compute_detcost(
+    size_t d,
+    const std::vector<char>& blocked_errs,
+    const std::vector<size_t>& det_counts) const {
   double min_cost = INF;
   for (size_t ei : d2e[d]) {
     if (!blocked_errs[ei]) {
@@ -34,6 +35,33 @@ double TesseractDecoder::get_detcost(size_t d,
     }
   }
   return min_cost + config.det_penalty;
+}
+
+double TesseractDecoder::get_detcost(
+    size_t d,
+    const std::vector<char>& blocked_errs,
+    const std::vector<size_t>& det_counts,
+    size_t which) {
+  switch (which) {
+    case 0:
+      ++detcost_counters.first;
+      break;
+    case 1:
+      ++detcost_counters.second;
+      break;
+    case 2:
+      ++detcost_counters.third;
+      break;
+    case 3:
+      ++detcost_counters.fourth;
+      break;
+    case 4:
+      ++detcost_counters.fifth;
+      break;
+    default:
+      break;
+  }
+  return compute_detcost(d, blocked_errs, det_counts);
 }
 
 TesseractDecoder::TesseractDecoder(TesseractConfig config_) : config(config_) {
@@ -227,7 +255,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   double initial_cost = 0.0;
   for (size_t d = 0; d < num_detectors; ++d) {
     if (!dets[d]) continue;
-    initial_cost += get_detcost(d, blocked_errs, det_counts);
+    initial_cost += get_detcost(d, blocked_errs, det_counts, 0);
   }
   if (initial_cost == INF) {
     low_confidence_flag = true;
@@ -405,22 +433,22 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
         if (node.dets[d]) {
           if (det_costs[d] == -1) {
             det_costs[d] =
-                get_detcost(d, node.blocked_errs, det_counts);
+                get_detcost(d, node.blocked_errs, det_counts, 1);
           }
           next_cost -= det_costs[d];
         } else {
-          next_cost += get_detcost(d, config.at_most_two_errors_per_detector ? next_next_blocked_errs : next_blocked_errs, next_det_counts);
+          next_cost += get_detcost(d, config.at_most_two_errors_per_detector ? next_next_blocked_errs : next_blocked_errs, next_det_counts, 2);
         }
       }
       for (size_t od : eneighbors[ei]) {
         if (!node.dets[od] || !next_dets[od]) continue;
         if (det_costs[od] == -1) {
           det_costs[od] =
-              get_detcost(od, node.blocked_errs, det_counts);
+              get_detcost(od, node.blocked_errs, det_counts, 3);
         }
         next_cost -= det_costs[od];
         next_cost +=
-            get_detcost(od, config.at_most_two_errors_per_detector ? next_next_blocked_errs : next_blocked_errs, next_det_counts);
+            get_detcost(od, config.at_most_two_errors_per_detector ? next_next_blocked_errs : next_blocked_errs, next_det_counts, 4);
       }
 
       if (next_cost == INF) {
