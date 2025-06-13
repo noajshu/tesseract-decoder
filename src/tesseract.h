@@ -37,6 +37,8 @@ struct TesseractConfig {
   size_t pqlimit = std::numeric_limits<size_t>::max();
   std::vector<std::vector<size_t>> det_orders;
   double det_penalty = 0;
+  bool bp_detcost = false;
+  size_t bp_iters = 5;
 };
 
 class Node {
@@ -95,6 +97,9 @@ struct TesseractDecoder {
   std::vector<std::vector<int>> d2e;
   std::vector<std::vector<int>> eneighbors;
   std::vector<std::vector<int>> edets;
+  std::vector<std::vector<size_t>> e2d_index;
+  std::vector<std::unordered_map<int, size_t>> edet_index_map;
+  std::vector<double> bp_posteriors;
   size_t num_detectors;
   size_t num_errors;
 
@@ -103,6 +108,7 @@ struct TesseractDecoder {
                      const std::vector<size_t>& det_counts) const;
   void to_node(const QNode& qnode, const std::vector<char>& shot_dets,
                size_t det_order, Node& node) const;
+  void compute_bp_posteriors(const std::vector<uint64_t>& detections);
 };
 
 #endif  // TESSERACT_DECODER_H
