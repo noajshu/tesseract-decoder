@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <cmath>
 
 bool Node::operator>(const Node& other) const {
   return cost > other.cost || (cost == other.cost && num_dets < other.num_dets);
@@ -28,8 +29,13 @@ double TesseractDecoder::get_detcost(size_t d,
   double min_cost = INF;
   for (size_t ei : d2e[d]) {
     if (!blocked_errs[ei]) {
-      double ecost = errors[ei].likelihood_cost / det_counts[ei];
-      min_cost = std::min(min_cost, ecost);
+      double base_cost;
+      if (config.bp_detcost && bp_posteriors.size() == errors.size()) {
+        base_cost = -bp_posteriors[ei] / det_counts[ei];
+      } else {
+        base_cost = errors[ei].likelihood_cost / det_counts[ei];
+      }
+      min_cost = std::min(min_cost, base_cost);
       assert(det_counts[ei]);
     }
   }
@@ -61,11 +67,17 @@ TesseractDecoder::TesseractDecoder(TesseractConfig config_) : config(config_) {
 void TesseractDecoder::initialize_structures(size_t num_detectors) {
   d2e.resize(num_detectors);
   edets.resize(num_errors);
+  e2d_index.resize(num_errors);
+  edet_index_map.resize(num_errors);
 
   for (size_t ei = 0; ei < num_errors; ++ei) {
     edets[ei] = errors[ei].symptom.detectors;
-    for (int d : edets[ei]) {
+    e2d_index[ei].resize(edets[ei].size());
+    for (size_t k = 0; k < edets[ei].size(); ++k) {
+      int d = edets[ei][k];
+      e2d_index[ei][k] = d2e[d].size();
       d2e[d].push_back(ei);
+      edet_index_map[ei][d] = k;
     }
   }
 
@@ -206,6 +218,11 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   std::vector<char> dets(num_detectors, false);
   for (size_t d : detections) {
     dets[d] = true;
+  }
+  if (config.bp_detcost) {
+    compute_bp_posteriors(detections);
+  } else {
+    bp_posteriors.clear();
   }
 
   std::priority_queue<QNode, std::vector<QNode>, std::greater<QNode>> pq;
@@ -479,5 +496,80 @@ void TesseractDecoder::decode_shots(
   obs_predicted.resize(shots.size());
   for (size_t i = 0; i < shots.size(); ++i) {
     obs_predicted[i] = decode(shots[i].hits);
+  }
+}
+
+void TesseractDecoder::compute_bp_posteriors(
+    const std::vector<uint64_t>& detections) {
+  size_t E = num_errors;
+  size_t D = num_detectors;
+  bp_posteriors.assign(E, 0.0);
+  if (E == 0 || D == 0) {
+    return;
+  }
+  std::vector<int> syndrome(D, 0);
+  for (size_t d : detections) {
+    if (d < D) {
+      syndrome[d] = 1;
+    }
+  }
+
+  std::vector<std::vector<double>> v2c(E);
+  std::vector<std::vector<double>> c2v(D);
+  for (size_t ei = 0; ei < E; ++ei) {
+    v2c[ei].assign(edets[ei].size(), 0.0);
+  }
+  for (size_t di = 0; di < D; ++di) {
+    c2v[di].assign(d2e[di].size(), 0.0);
+  }
+
+  std::vector<double> prior_llr(E);
+  for (size_t ei = 0; ei < E; ++ei) {
+    prior_llr[ei] = -errors[ei].likelihood_cost;
+  }
+
+  for (size_t iter = 0; iter < config.bp_iters; ++iter) {
+    // variable to check
+    for (size_t ei = 0; ei < E; ++ei) {
+      for (size_t k = 0; k < edets[ei].size(); ++k) {
+        double sum = prior_llr[ei];
+        for (size_t k2 = 0; k2 < edets[ei].size(); ++k2) {
+          if (k2 == k) continue;
+          int d = edets[ei][k2];
+          size_t idx = e2d_index[ei][k2];
+          sum += c2v[d][idx];
+        }
+        v2c[ei][k] = sum;
+      }
+    }
+
+    // check to variable
+    for (size_t di = 0; di < D; ++di) {
+      for (size_t idx = 0; idx < d2e[di].size(); ++idx) {
+        double prod = 1.0;
+        for (size_t idx2 = 0; idx2 < d2e[di].size(); ++idx2) {
+          if (idx2 == idx) continue;
+          size_t ei2 = d2e[di][idx2];
+          size_t k = edet_index_map[ei2].at(di);
+          prod *= std::tanh(v2c[ei2][k] / 2.0);
+        }
+        prod = std::clamp(prod, -0.999999, 0.999999);
+        double msg = 2.0 * std::atanh(prod);
+        if (syndrome[di]) {
+          msg = -msg;
+        }
+        c2v[di][idx] = msg;
+      }
+    }
+  }
+
+  for (size_t ei = 0; ei < E; ++ei) {
+    double sum = prior_llr[ei];
+    for (size_t k = 0; k < edets[ei].size(); ++k) {
+      int d = edets[ei][k];
+      size_t idx = e2d_index[ei][k];
+      sum += c2v[d][idx];
+    }
+    bp_posteriors[ei] = sum;
   }
 }

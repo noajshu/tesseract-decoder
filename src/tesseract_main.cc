@@ -74,6 +74,8 @@ struct Args {
   bool no_revisit_dets = false;
   bool at_most_two_errors_per_detector = false;
   size_t pqlimit;
+  bool bp_detcost = false;
+  size_t bp_iters = 5;
 
   bool verbose = false;
   bool print_stats = false;
@@ -382,6 +384,8 @@ struct Args {
     config.no_revisit_dets = no_revisit_dets;
     config.at_most_two_errors_per_detector = at_most_two_errors_per_detector;
     config.pqlimit = pqlimit;
+    config.bp_detcost = bp_detcost;
+    config.bp_iters = bp_iters;
     config.verbose = verbose;
   }
 };
@@ -547,6 +551,15 @@ int main(int argc, char* argv[]) {
       .metavar("N")
       .default_value(std::numeric_limits<size_t>::max())
       .store_into(args.pqlimit);
+  program.add_argument("--bp-detcost")
+      .help("Use belief propagation heuristic for detector costs")
+      .flag()
+      .store_into(args.bp_detcost);
+  program.add_argument("--bp-iters")
+      .help("Number of iterations for BP detcost computation")
+      .metavar("N")
+      .default_value(size_t(5))
+      .store_into(args.bp_iters);
   program.add_argument("--verbose")
       .help("Increases output verbosity")
       .flag()
@@ -704,6 +717,8 @@ int main(int argc, char* argv[]) {
                                  {"beam_climbing", args.beam_climbing},
                                  {"no_revisit_dets", args.no_revisit_dets},
                                  {"pqlimit", args.pqlimit},
+                                 {"bp_detcost", args.bp_detcost},
+                                 {"bp_iters", args.bp_iters},
                                  {"num_det_orders", args.num_det_orders},
                                  {"det_order_seed", args.det_order_seed},
                                  {"total_time_seconds", total_time_seconds},
