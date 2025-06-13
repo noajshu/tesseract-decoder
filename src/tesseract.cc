@@ -110,7 +110,7 @@ struct VectorCharHash {
 
 void TesseractDecoder::decode_to_errors(
     const std::vector<uint64_t>& detections) {
-  std::vector<size_t> best_errors;
+  SmallVector<size_t> best_errors;
   double best_cost = std::numeric_limits<double>::max();
   assert(config.det_orders.size());
   int max_det_beam = config.det_beam;
@@ -121,7 +121,10 @@ void TesseractDecoder::decode_to_errors(
       decode_to_errors(detections, det_order);
       double this_cost = cost_from_errors(predicted_errors_buffer);
       if (!low_confidence_flag && this_cost < best_cost) {
-        best_errors = predicted_errors_buffer;
+        best_errors.clear();
+        for (size_t ei : predicted_errors_buffer) {
+          best_errors.push_back(ei);
+        }
         best_cost = this_cost;
       }
       if (config.verbose) {
@@ -138,7 +141,10 @@ void TesseractDecoder::decode_to_errors(
       decode_to_errors(detections, det_order);
       double this_cost = cost_from_errors(predicted_errors_buffer);
       if (!low_confidence_flag && this_cost < best_cost) {
-        best_errors = predicted_errors_buffer;
+        best_errors.clear();
+        for (size_t ei : predicted_errors_buffer) {
+          best_errors.push_back(ei);
+        }
         best_cost = this_cost;
       }
       if (config.verbose) {
@@ -152,7 +158,7 @@ void TesseractDecoder::decode_to_errors(
     }
   }
   config.det_beam = max_det_beam;
-  predicted_errors_buffer = best_errors;
+  predicted_errors_buffer.assign(best_errors.begin(), best_errors.end());
   low_confidence_flag = best_cost == std::numeric_limits<double>::max();
 }
 
@@ -214,7 +220,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       discovered_dets;
 
   size_t min_num_dets = detections.size();
-  std::vector<size_t> errs;
+  SmallVector<size_t> errs;
   std::vector<char> blocked_errs(num_errors, false);
   std::vector<size_t> det_counts(num_errors, 0);
 
@@ -242,7 +248,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   std::vector<size_t> next_det_counts;
   std::vector<char> next_next_blocked_errs;
   std::vector<char> next_dets;
-  std::vector<size_t> next_errs;
+  SmallVector<size_t> next_errs;
 
   while (!pq.empty()) {
     const QNode qnode = pq.top();
@@ -272,7 +278,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
                   << " num_pq_pushed = " << num_pq_pushed << std::endl;
       }
       // Store the predicted errors into the buffer
-      predicted_errors_buffer = node.errs;
+      predicted_errors_buffer.assign(node.errs.begin(), node.errs.end());
       return;
     }
 

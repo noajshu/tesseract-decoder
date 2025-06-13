@@ -55,6 +55,7 @@ cc_library(
     ],
     hdrs = [
         "common.h",
+        "small_vector.h",
     ],
     copts = OPT_COPTS,
     linkopts = OPT_LINKOPTS,

@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <vector>
 #include <unordered_set>
+#include "small_vector.h"
 
 #include "common.h"
 #include "stim.h"
@@ -41,7 +42,7 @@ struct TesseractConfig {
 
 class Node {
  public:
-  std::vector<size_t> errs;
+  SmallVector<size_t> errs;
   std::vector<char> dets;
   double cost;
   size_t num_dets;
@@ -54,7 +55,7 @@ class QNode {
  public:
   double cost;
   size_t num_dets;
-  std::vector<size_t> errs;
+  SmallVector<size_t> errs;
 
   bool operator>(const QNode& other) const;
 };
