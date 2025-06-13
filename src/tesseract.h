@@ -94,6 +94,7 @@ struct TesseractDecoder {
  private:
   std::vector<std::vector<int>> d2e;
   std::vector<std::vector<int>> eneighbors;
+  std::vector<double> min_detcosts;
   std::vector<std::vector<int>> edets;
   size_t num_detectors;
   size_t num_errors;

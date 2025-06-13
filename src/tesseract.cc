@@ -29,9 +29,13 @@ double TesseractDecoder::get_detcost(size_t d,
   for (size_t ei : d2e[d]) {
     if (!blocked_errs[ei]) {
       double ecost = errors[ei].likelihood_cost / det_counts[ei];
-      min_cost = std::min(min_cost, ecost);
-      assert(det_counts[ei]);
+      if (ecost < min_cost) {
+        min_cost = ecost;
+      }
+      // min_cost = std::min(min_cost, ecost);
+      // assert(det_counts[ei]);
     }
+    if (min_cost <= min_detcosts[ei]) break;
   }
   return min_cost + config.det_penalty;
 }
@@ -88,11 +92,24 @@ void TesseractDecoder::initialize_structures(size_t num_detectors) {
     }
     eneighbors[ei] = std::vector<int>(neighbor_set.begin(), neighbor_set.end());
   }
+
+  min_detcosts.resize(errors.size());
+  for (size_t ei=0; ei<num_errors ; ++ ei) {
+    min_detcosts[ei] = errors[ei].likelihood_cost / double(errors[ei].symptom.detectors.size());
+  }
+  for (size_t d=0; d<num_detectors; ++d) {
+    std::sort(d2e[d].begin(), d2e[d].end(),
+                  [this](size_t ei1, size_t ei2) {
+                      return min_detcosts[ei1] < min_detcosts[ei2];
+                  });
+    // std::sort(d2e[d].begin(), d2e[d].end());
+  }
+
 }
 
 struct VectorCharHash {
   size_t operator()(const std::vector<char>& v) const {
-    size_t seed = v.size();  // Still good practice to incorporate vector size
+    size_t seed = 4893748952;
 
     // Iterate over char elements. Accessing 'b_val' is now a direct memory
     // read.
