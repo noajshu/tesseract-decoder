@@ -121,7 +121,10 @@ void TesseractDecoder::decode_to_errors(
       decode_to_errors(detections, det_order);
       double this_cost = cost_from_errors(predicted_errors_buffer);
       if (!low_confidence_flag && this_cost < best_cost) {
-        best_errors = predicted_errors_buffer;
+        best_errors.clear();
+        for (size_t ei : predicted_errors_buffer) {
+          best_errors.push_back(ei);
+        }
         best_cost = this_cost;
       }
       if (config.verbose) {
@@ -138,7 +141,10 @@ void TesseractDecoder::decode_to_errors(
       decode_to_errors(detections, det_order);
       double this_cost = cost_from_errors(predicted_errors_buffer);
       if (!low_confidence_flag && this_cost < best_cost) {
-        best_errors = predicted_errors_buffer;
+        best_errors.clear();
+        for (size_t ei : predicted_errors_buffer) {
+          best_errors.push_back(ei);
+        }
         best_cost = this_cost;
       }
       if (config.verbose) {
@@ -152,7 +158,7 @@ void TesseractDecoder::decode_to_errors(
     }
   }
   config.det_beam = max_det_beam;
-  predicted_errors_buffer = best_errors;
+  predicted_errors_buffer.assign(best_errors.begin(), best_errors.end());
   low_confidence_flag = best_cost == std::numeric_limits<double>::max();
 }
 
@@ -272,7 +278,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
                   << " num_pq_pushed = " << num_pq_pushed << std::endl;
       }
       // Store the predicted errors into the buffer
-      predicted_errors_buffer = node.errs;
+      predicted_errors_buffer.assign(node.errs.begin(), node.errs.end());
       return;
     }
 
@@ -448,7 +454,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
 }
 
 double TesseractDecoder::cost_from_errors(
-    const SmallVector<size_t>& predicted_errors) {
+    const std::vector<size_t>& predicted_errors) {
   double total_cost = 0;
   // Iterate over all errors and add to the mask
   for (size_t ei : predicted_errors_buffer) {
@@ -458,7 +464,7 @@ double TesseractDecoder::cost_from_errors(
 }
 
 common::ObservablesMask TesseractDecoder::mask_from_errors(
-    const SmallVector<size_t>& predicted_errors) {
+    const std::vector<size_t>& predicted_errors) {
   common::ObservablesMask mask = 0;
   // Iterate over all errors and add to the mask
   for (size_t ei : predicted_errors_buffer) {
