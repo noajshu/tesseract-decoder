@@ -24,6 +24,7 @@
 #include "common.h"
 #include "stim.h"
 #include "utils.h"
+#include <array>
 
 constexpr size_t INF_DET_BEAM = std::numeric_limits<uint16_t>::max();
 
@@ -59,9 +60,19 @@ class QNode {
   bool operator>(const QNode& other) const;
 };
 
+struct DetcostCounters {
+  size_t first = 0;
+  size_t second = 0;
+  size_t third = 0;
+  size_t fourth = 0;
+  size_t fifth = 0;
+};
+
 struct TesseractDecoder {
   TesseractConfig config;
   explicit TesseractDecoder(TesseractConfig config);
+
+  DetcostCounters detcost_counters;
 
   // Clears the predicted_errors_buffer and fills it with the decoded errors for
   // these detection events.
@@ -99,8 +110,10 @@ struct TesseractDecoder {
   size_t num_errors;
 
   void initialize_structures(size_t num_detectors);
+  double compute_detcost(size_t d, const std::vector<char>& blocked_errs,
+                         const std::vector<size_t>& det_counts) const;
   double get_detcost(size_t d, const std::vector<char>& blocked_errs,
-                     const std::vector<size_t>& det_counts) const;
+                     const std::vector<size_t>& det_counts, size_t which);
   void to_node(const QNode& qnode, const std::vector<char>& shot_dets,
                size_t det_order, Node& node) const;
 };
