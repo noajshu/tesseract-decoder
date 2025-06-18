@@ -74,3 +74,16 @@ http_archive(
     strip_prefix = "stim-1.15.0",
     urls = ["https://github.com/quantumlib/Stim/releases/download/v1.15.0/stim-1.15.0.tar.gz"],
 )
+
+ROBIN_MAP_VERSION = "1.4.0"
+ROBIN_MAP_SHA256 = "7930dbf9634acfc02686d87f615c0f4f33135948130b8922331c16d90a03250c"
+
+http_archive(
+    name = "robin_map",
+    sha256 = ROBIN_MAP_SHA256,
+    strip_prefix = "robin-map-" + ROBIN_MAP_VERSION,
+    urls = [
+        "https://github.com/Tessil/robin-map/archive/refs/tags/v" + ROBIN_MAP_VERSION + ".tar.gz",
+    ],
+    build_file = "//external:robin_map.BUILD",
+)

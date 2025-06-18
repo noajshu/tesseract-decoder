@@ -271,8 +271,8 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   }
 
   std::priority_queue<QNode, std::vector<QNode>, std::greater<QNode>> pq;
-  std::unordered_map<size_t,
-                     std::unordered_set<std::vector<char>, VectorCharHash>>
+  tsl::robin_map<size_t,
+                 tsl::robin_set<std::vector<char>, VectorCharHash>>
       discovered_dets;
 
   size_t min_num_dets = detections.size();
