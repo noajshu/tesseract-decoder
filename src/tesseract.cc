@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -69,6 +70,7 @@ bool Node::operator>(const Node& other) const {
 double TesseractDecoder::get_detcost(
     size_t d, const std::vector<DetectorCostTuple>& detector_cost_tuples) const {
   double min_cost = INF;
+  size_t argmin = std::numeric_limits<size_t>::max();
   ErrorCost ec;
   DetectorCostTuple dct;
 
@@ -78,8 +80,15 @@ double TesseractDecoder::get_detcost(
     if (ec.min_cost >= min_cost) break;
     if (!dct.error_blocked) {
       double error_cost = ec.likelihood_cost / dct.detectors_count;
-      min_cost = std::min(min_cost, error_cost);
+      if (error_cost < min_cost) {
+        min_cost = error_cost;
+        argmin = ei;
+      }
     }
+  }
+
+  if (argmin != std::numeric_limits<size_t>::max()) {
+    ++detcost_min_error_counts[d][argmin];
   }
 
   return min_cost + config.det_penalty;
@@ -116,6 +125,7 @@ TesseractDecoder::TesseractDecoder(TesseractConfig config_) : config(config_) {
   num_detectors = config.dem.count_detectors();
   num_errors = config.dem.count_errors();
   initialize_structures(config.dem.count_detectors());
+  detcost_min_error_counts.resize(num_detectors);
 }
 
 void TesseractDecoder::initialize_structures(size_t num_detectors) {

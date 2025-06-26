@@ -20,6 +20,7 @@
 #include <numeric>
 #include <queue>
 #include <thread>
+#include <mutex>
 
 #include "common.h"
 #include "stim.h"
@@ -61,6 +62,10 @@ struct Args {
   // If stats_out_fname is present, basic statistics and metadata will be
   // written to this file.
   std::string stats_out_fname = "";
+
+  // If detcost_stats_out_fname is present, per-detector minimum-detcost usage
+  // statistics will be written to this file in CSV format.
+  std::string detcost_stats_out_fname = "";
 
   // The most effective way of parallelizing is over shots, confining each ILP
   // solver to a single thread.
@@ -479,6 +484,11 @@ int main(int argc, char* argv[]) {
       .metavar("filename")
       .default_value(std::string(""))
       .store_into(args.dem_out_fname);
+  program.add_argument("--detcost-stats-out")
+      .help("File to write detcost minimum usage statistics to")
+      .metavar("filename")
+      .default_value(std::string(""))
+      .store_into(args.detcost_stats_out_fname);
   program.add_argument("--stats-out")
       .help("File to write high-level statistics and metadata to")
       .metavar("filename")
@@ -549,6 +559,9 @@ int main(int argc, char* argv[]) {
   std::vector<std::atomic<bool>> low_confidence(shots.size());
   std::vector<std::thread> decoder_threads;
   std::vector<std::atomic<size_t>> error_use_totals(config.dem.count_errors());
+  std::vector<std::unordered_map<size_t, size_t>> detcost_min_totals(
+      config.dem.count_detectors());
+  std::mutex detcost_totals_mutex;
   bool has_obs = args.has_observables();
   std::atomic<bool> worker_threads_please_terminate = false;
   std::atomic<size_t> num_worker_threads_active;
@@ -556,9 +569,19 @@ int main(int argc, char* argv[]) {
     // After this value returns to 0, we know that no further shots will
     // transition to finished.
     ++num_worker_threads_active;
-    decoder_threads.push_back(std::thread([&config, &next_unclaimed_shot, &shots, &obs_predicted,
-                                           &cost_predicted, &decoding_time_seconds, &low_confidence,
-                                           &finished, &error_use_totals, &has_obs,
+    decoder_threads.push_back(std::thread([
+                                           &config,
+                                           &next_unclaimed_shot,
+                                           &shots,
+                                           &obs_predicted,
+                                           &cost_predicted,
+                                           &decoding_time_seconds,
+                                           &low_confidence,
+                                           &finished,
+                                           &error_use_totals,
+                                           &detcost_min_totals,
+                                           &detcost_totals_mutex,
+                                           &has_obs,
                                            &worker_threads_please_terminate,
                                            &num_worker_threads_active]() {
       TesseractDecoder decoder(config);
@@ -586,6 +609,16 @@ int main(int argc, char* argv[]) {
       // Add the error counts to the total
       for (size_t ei = 0; ei < error_use_totals.size(); ++ei) {
         error_use_totals[ei] += error_use[ei];
+      }
+
+      {
+        std::lock_guard<std::mutex> lock(detcost_totals_mutex);
+        const auto& local_counts = decoder.detcost_argmin_counts();
+        for (size_t d = 0; d < local_counts.size(); ++d) {
+          for (const auto& kv : local_counts[d]) {
+            detcost_min_totals[d][kv.first] += kv.second;
+          }
+        }
       }
       --num_worker_threads_active;
     }));
@@ -637,6 +670,21 @@ int main(int argc, char* argv[]) {
   }
   for (size_t t = 0; t < args.num_threads; ++t) {
     decoder_threads[t].join();
+  }
+
+  if (!args.detcost_stats_out_fname.empty()) {
+    std::ofstream out(args.detcost_stats_out_fname, std::ofstream::out);
+    if (!out.is_open()) {
+      throw std::invalid_argument("Failed to open " + args.detcost_stats_out_fname);
+    }
+    out << "detector_index,error_index,count\n";
+    for (size_t d = 0; d < detcost_min_totals.size(); ++d) {
+      for (const auto& kv : detcost_min_totals[d]) {
+        if (kv.second != 0) {
+          out << d << "," << kv.first << "," << kv.second << "\n";
+        }
+      }
+    }
   }
 
   if (!args.dem_out_fname.empty()) {
