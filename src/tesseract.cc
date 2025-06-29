@@ -90,8 +90,11 @@ double TesseractDecoder::get_detcost(
   if (argmin != std::numeric_limits<size_t>::max()) {
     ++detcost_min_error_counts[d][argmin];
   }
-
-  return min_cost + config.det_penalty;
+  double ret = min_cost + config.det_penalty;
+  if (ret != INF) {
+    ++detcost_value_counts[d][ret];
+  }
+  return ret;
 }
 
 struct VectorCharHash {
@@ -126,6 +129,7 @@ TesseractDecoder::TesseractDecoder(TesseractConfig config_) : config(config_) {
   num_errors = config.dem.count_errors();
   initialize_structures(config.dem.count_detectors());
   detcost_min_error_counts.resize(num_detectors);
+  detcost_value_counts.resize(num_detectors);
 }
 
 void TesseractDecoder::initialize_structures(size_t num_detectors) {
