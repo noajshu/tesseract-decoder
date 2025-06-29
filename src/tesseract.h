@@ -90,6 +90,16 @@ struct TesseractDecoder {
   std::vector<size_t> predicted_errors_buffer;
   std::vector<common::Error> errors;
 
+  // Tracks how often each error attains the minimum detcost for each detector.
+  const std::vector<std::unordered_map<size_t, size_t>>& detcost_argmin_counts() const {
+    return detcost_min_error_counts;
+  }
+
+  // Histogram of detcost values returned for each detector.
+  const std::vector<std::unordered_map<double, size_t>>& detcost_value_histograms() const {
+    return detcost_value_counts;
+  }
+
  private:
   std::vector<std::vector<int>> d2e;
   std::vector<std::vector<int>> eneighbors;
@@ -97,6 +107,9 @@ struct TesseractDecoder {
   size_t num_detectors;
   size_t num_errors;
   std::vector<ErrorCost> error_costs;
+
+  mutable std::vector<std::unordered_map<size_t, size_t>> detcost_min_error_counts;
+  mutable std::vector<std::unordered_map<double, size_t>> detcost_value_counts;
 
   void initialize_structures(size_t num_detectors);
   double get_detcost(size_t d, const std::vector<DetectorCostTuple>& detector_cost_tuples) const;
