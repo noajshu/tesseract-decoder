@@ -52,10 +52,11 @@ class Node {
   double cost;
   // The number of activated detectors (dets for short) at this node
   size_t num_dets;
+  size_t num_fresh_dets;
   std::vector<size_t> errors;
 
   bool operator>(const Node& other) const;
-  std::string str();
+  std::string str() const ;
 };
 
 struct DetectorCostTuple {
@@ -117,6 +118,7 @@ struct TesseractDecoder {
   void flip_detectors_and_block_errors(size_t detector_order, const std::vector<size_t>& errors,
                                        boost::dynamic_bitset<>& detectors,
                                        std::vector<DetectorCostTuple>& detector_cost_tuples) const;
+  size_t get_min_det(size_t detector_order, const boost::dynamic_bitset<>& dets) const;
 };
 
 #endif  // TESSERACT_DECODER_H
