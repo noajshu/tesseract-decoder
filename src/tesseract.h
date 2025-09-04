@@ -56,12 +56,12 @@ class Node {
   std::vector<size_t> errors;
 
   bool operator>(const Node& other) const;
-  std::string str() const ;
+  std::string str() const;
 };
 
 struct DetectorCostTuple {
   uint32_t error_blocked;
-  uint32_t detectors_count;
+  uint32_t num_dets;
 };
 
 struct ErrorCost {
@@ -78,6 +78,10 @@ struct TesseractDecoder {
   // Clears the predicted_errors_buffer and fills it with the decoded errors for
   // these detection events.
   void decode_to_errors(const std::vector<uint64_t>& detections);
+
+  void decode_to_errors_helper(const std::vector<uint64_t>& detections, size_t detector_order,
+                               size_t detector_beam, const std::vector<uint64_t>& seed_dets,
+                               std::set<uint64_t>& shell_errors, std::set<uint64_t>& shell_dets);
 
   // Clears the predicted_errors_buffer and fills it with the decoded errors for
   // these detection events, using a specified detector ordering index.
@@ -116,9 +120,13 @@ struct TesseractDecoder {
   void initialize_structures(size_t num_detectors);
   double get_detcost(size_t d, const std::vector<DetectorCostTuple>& detector_cost_tuples) const;
   void flip_detectors_and_block_errors(size_t detector_order, const std::vector<size_t>& errors,
-                                       boost::dynamic_bitset<>& detectors,
+                                       boost::dynamic_bitset<>& dets,
+                                       const boost::dynamic_bitset<>& initial_dets,
+                                       const std::vector<uint64_t>& seed_dets,
                                        std::vector<DetectorCostTuple>& detector_cost_tuples) const;
-  size_t get_min_det(size_t detector_order, const boost::dynamic_bitset<>& dets) const;
+  size_t get_min_det(size_t detector_order, const boost::dynamic_bitset<>& dets,
+                     const boost::dynamic_bitset<>& initial_dets,
+                     const std::vector<uint64_t>& seed_dets) const;
 };
 
 #endif  // TESSERACT_DECODER_H

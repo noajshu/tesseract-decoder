@@ -96,7 +96,7 @@ double TesseractDecoder::get_detcost(
 
     dct = detector_cost_tuples[ei];
     if (!dct.error_blocked) {
-      error_cost = ec.likelihood_cost / dct.detectors_count;
+      error_cost = ec.likelihood_cost / dct.num_dets;
       if (error_cost < min_cost) {
         min_cost = error_cost;
       }
@@ -242,11 +242,22 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections)
   low_confidence_flag = best_cost == std::numeric_limits<double>::max();
 }
 
-size_t TesseractDecoder::get_min_det(size_t detector_order,
-                                     const boost::dynamic_bitset<>& dets) const {
+size_t TesseractDecoder::get_min_det(size_t detector_order, const boost::dynamic_bitset<>& dets,
+                                     const boost::dynamic_bitset<>& initial_dets,
+                                     const std::vector<uint64_t>& seed_dets) const {
+  // This must only return dets in the seed dets or fresh dets
+  // Now look for seed dets
+  for (uint64_t d : seed_dets) {
+    if (dets[d]) {
+      return d;
+    }
+  }
+  // Look for fresh dets
   for (size_t d = 0; d < num_detectors; ++d) {
-    if (dets[config.det_orders[detector_order][d]]) {
-      return config.det_orders[detector_order][d];
+    size_t dod = config.det_orders[detector_order][d];
+    if (dets[dod] and !initial_dets[dod]) {
+      // If this is a fresh det
+      return dod;
     }
   }
   return std::numeric_limits<size_t>::max();
@@ -254,9 +265,10 @@ size_t TesseractDecoder::get_min_det(size_t detector_order,
 
 void TesseractDecoder::flip_detectors_and_block_errors(
     size_t detector_order, const std::vector<size_t>& errors, boost::dynamic_bitset<>& dets,
+    const boost::dynamic_bitset<>& initial_dets, const std::vector<uint64_t>& seed_dets,
     std::vector<DetectorCostTuple>& detector_cost_tuples) const {
   for (size_t ei : errors) {
-    size_t min_det = get_min_det(detector_order, dets);
+    size_t min_det = get_min_det(detector_order, dets, initial_dets, seed_dets);
 
     for (size_t oei : d2e[min_det]) {
       detector_cost_tuples[oei].error_blocked = 1;
@@ -269,8 +281,185 @@ void TesseractDecoder::flip_detectors_and_block_errors(
   }
 }
 
+static size_t counter = 0;
+
 void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
                                         size_t detector_order, size_t detector_beam) {
+  std::vector<std::vector<uint64_t>> seeds;
+  for (uint64_t d : detections) {
+    seeds.push_back({d});
+  }
+  while (true) {
+    // Used to find collisions between shells
+    std::vector<std::vector<uint64_t>> error_to_seeds(num_errors);
+    std::vector<std::vector<uint64_t>> det_to_seeds(num_detectors);
+    // Find the optimal resolutions for each seed
+    std::vector<size_t> predicted_errors_concat;
+    std::vector<size_t> concat_seeds;
+    for (size_t si = 0; si < seeds.size(); ++si) {
+      const auto& seed = seeds[si];
+      for (size_t d : seed) {
+        concat_seeds.push_back(d);
+      }
+      // The seed dets are the detection event indices for which we want to search for the optimal
+      // resolution node The shell errors (like shell area in Blossom) are the errors that we
+      // considered using (i.e., for any node visited during the search)
+      std::set<uint64_t> shell_errors;
+      std::set<uint64_t> shell_dets;
+      // std::cout << "decoding for seed " << si <<" with " << seed.size() <<" detection
+      // events"<<std::endl;
+      ++counter;
+      // std::cout<<"counter = "<<counter<<std::endl;
+      // if (counter == 8) {
+      //   config.verbose=true;
+      // } else {
+      //   config.verbose=false;
+      // }
+      predicted_errors_buffer.clear();
+      decode_to_errors_helper(detections, detector_order, detector_beam, seed, shell_errors,
+                              shell_dets);
+      assert(!low_confidence_flag);
+      predicted_errors_concat.insert(predicted_errors_concat.end(), predicted_errors_buffer.begin(),
+                                     predicted_errors_buffer.end());
+      // std::cout<<"got shell_errors.size() = " << shell_errors.size()
+      //           <<" shell_dets.size() = "<<shell_dets.size()
+      //           << " predicted_errors_buffer.size() = " << predicted_errors_buffer.size()
+      //           << std::endl;
+      for (uint64_t ei : shell_errors) {
+        error_to_seeds[ei].push_back(si);
+      }
+      for (uint64_t d : shell_dets) {
+        det_to_seeds[d].push_back(si);
+      }
+    }
+
+    std::sort(concat_seeds.begin(), concat_seeds.end());
+    // std::cout<<"concat_seeds = ";
+    // for(size_t d:concat_seeds) {
+    //   std::cout<<d<<", ";
+    // }
+    // std::cout<<std::endl;
+    for (size_t i = 0; i + 1 < concat_seeds.size(); ++i) {
+      assert(concat_seeds[i + 1] != concat_seeds[i]);
+    }
+    assert(concat_seeds == detections);
+    // Simple union-find data structure for the merging of seeds
+    std::vector<size_t> parents(seeds.size());
+    // Parents begins with the
+    std::iota(parents.begin(), parents.end(), 0);
+    // Find, but without any path compression for simplicity (ok if clusters are small)
+    auto find = [&parents](size_t u) -> size_t {
+      size_t v;
+      while (true) {
+        v = parents[u];
+        if (u == v) return v;
+        u = v;
+      }
+    };
+    auto do_union = [&parents, &find](size_t u, size_t v) {
+      u = find(u);
+      v = find(v);
+      parents[v] = u;
+    };
+
+    bool collision = false;
+    for (size_t ei = 0; ei < num_errors; ++ei) {
+      if (error_to_seeds[ei].size() > 1) {
+        // std::cout << "shell collision on error " << ei << " with " << error_to_seeds[ei].size()
+        //           << " seeds" << std::endl;
+        collision = true;
+      }
+      // Merge the seeds that collided
+      for (size_t i = 1; i < error_to_seeds[ei].size(); ++i) {
+        do_union(error_to_seeds[ei][0], error_to_seeds[ei][i]);
+      }
+    }
+    for (size_t d = 0; d < num_detectors; ++d) {
+      if (det_to_seeds[d].size() > 1) {
+        collision = true;
+      }
+      // Merge the seeds that collided
+      for (size_t i = 1; i < det_to_seeds[d].size(); ++i) {
+        do_union(det_to_seeds[d][0], det_to_seeds[d][i]);
+      }
+    }
+    // // Hack test
+    // for (size_t si=1; si<seeds.size(); ++si) {
+    //   do_union(0, si);
+    //   collision = true;
+    // }
+
+    if (!collision) {
+      std::sort(predicted_errors_concat.begin(), predicted_errors_concat.end());
+      // std::cout<<"predicted_errors_concat = ";
+      // for (size_t ei: predicted_errors_concat) {
+      //   std::cout<<ei<<", ";
+      // }
+      // std::cout<<std::endl;
+      for (size_t i = 0; i + 1 < predicted_errors_concat.size(); ++i) {
+        assert(predicted_errors_concat[i] != predicted_errors_concat[i + 1]);
+      }
+      predicted_errors_buffer = predicted_errors_concat;
+      boost::dynamic_bitset<> predicted_dets(num_detectors, false);
+      for (size_t ei : predicted_errors_buffer) {
+        for (size_t d : edets[ei]) {
+          predicted_dets[d] ^= true;
+        }
+      }
+      boost::dynamic_bitset<> original_dets(num_detectors, false);
+      for (size_t d : detections) {
+        original_dets[d] = true;
+      }
+      // std::cout<<"original_dets =  ";
+      // for (size_t d=0; d<num_detectors; ++d) {
+      //   if (original_dets[d]) {
+      //     std::cout<<d<<", ";
+      //   }
+      // }
+      // std::cout<<std::endl;
+      // std::cout<<"predicted_dets = ";
+      // for (size_t d=0; d<num_detectors; ++d) {
+      //   if (predicted_dets[d]) {
+      //     std::cout<<d<<", ";
+      //   }
+      // }
+      // std::cout<<std::endl;
+
+      assert(predicted_dets == original_dets);
+      return;
+    }
+    // At this point we need to extract the new seeds. We assign each one an index.
+    std::map<size_t, size_t> root_indices;
+    for (size_t si = 0; si < parents.size(); ++si) {
+      if (parents[si] == si) {
+        root_indices[si] = root_indices.size();
+      }
+    }
+    // std::cout<<"root_indices = ";
+    // for (auto & [r, i] : root_indices) {
+    //   std::cout<<"("<<r<<","<<i<<") ";
+    // }
+    // std::cout<<std::endl;
+    std::vector<std::vector<uint64_t>> next_seeds(root_indices.size());
+    for (size_t si = 0; si < seeds.size(); ++si) {
+      std::vector<uint64_t>& seed = next_seeds[root_indices[find(si)]];
+      for (size_t d : seeds[si]) {
+        seed.push_back(d);
+      }
+    }
+    for (size_t si = 0; si < next_seeds.size(); ++si) {
+      std::sort(next_seeds.begin(), next_seeds.end());
+    }
+    std::swap(next_seeds, seeds);
+    next_seeds.clear();
+  }
+}
+
+void TesseractDecoder::decode_to_errors_helper(const std::vector<uint64_t>& detections,
+                                               size_t detector_order, size_t detector_beam,
+                                               const std::vector<uint64_t>& seed_dets,
+                                               std::set<uint64_t>& shell_errors,
+                                               std::set<uint64_t>& shell_dets) {
   predicted_errors_buffer.clear();
   low_confidence_flag = false;
 
@@ -282,13 +471,20 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
 
   for (size_t d : detections) {
     initial_dets[d] = true;
+    //   for (int ei : d2e[d]) {
+    //     ++initial_detector_cost_tuples[ei].num_dets;
+    //   }
+  }
+  for (size_t d : seed_dets) {
     for (int ei : d2e[d]) {
-      ++initial_detector_cost_tuples[ei].detectors_count;
+      ++initial_detector_cost_tuples[ei].num_dets;
     }
   }
 
   double initial_cost = 0;
-  for (size_t d : detections) {
+  // for (size_t d : detections) {
+  for (size_t d : seed_dets) {
+    assert(initial_dets[d]);
     initial_cost += get_detcost(d, initial_detector_cost_tuples);
   }
 
@@ -299,10 +495,10 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
 
   size_t min_num_dets = detections.size();
   size_t max_num_dets = min_num_dets + detector_beam;
-  size_t initial_min_det = get_min_det(detector_order, initial_dets);
+
   std::vector<size_t> next_errors;
   boost::dynamic_bitset<> next_dets;
-  std::vector<DetectorCostTuple> next_detector_cost_tuples;
+  // std::vector<DetectorCostTuple> next_detector_cost_tuples;
 
   pq.push({initial_cost, min_num_dets, /*num_fresh_dets=*/0, std::vector<size_t>()});
   size_t num_pq_pushed = 1;
@@ -310,12 +506,51 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   while (!pq.empty()) {
     const Node node = pq.top();
     pq.pop();
+    for (size_t ei : node.errors) {
+      shell_errors.insert(ei);
+    }
 
     if (node.num_dets > max_num_dets) continue;
 
     boost::dynamic_bitset<> dets = initial_dets;
     std::vector<DetectorCostTuple> detector_cost_tuples(num_errors);
-    flip_detectors_and_block_errors(detector_order, node.errors, dets, detector_cost_tuples);
+    flip_detectors_and_block_errors(detector_order, node.errors, dets, initial_dets, seed_dets,
+                                    detector_cost_tuples);
+
+    // Can obviously fold this in
+    if (node.num_fresh_dets == 0) {
+      bool resolution = true;
+      for (uint64_t sd : seed_dets) {
+        if (dets[sd]) {
+          resolution = false;
+          break;
+        }
+      }
+      if (resolution) {
+        auto this_dets = initial_dets;
+        for (size_t ei : node.errors) {
+          for (size_t d : edets[ei]) {
+            this_dets[d] ^= 1;
+          }
+        }
+        // Double checks:
+        for (size_t d : seed_dets) {
+          assert(!this_dets[d]);
+        }
+        for (size_t d = 0; d < num_detectors; ++d) {
+          if (this_dets[d]) {
+            assert(initial_dets[d]);
+          } else {
+            if (initial_dets[d]) {
+              shell_dets.insert(d);
+            }
+          }
+        }
+
+        predicted_errors_buffer = node.errors;
+        return;
+      }
+    }
 
     if (node.num_dets == 0) {
       if (config.create_visualization) {
@@ -352,8 +587,8 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
     if (config.verbose) {
       std::cout.precision(13);
       std::cout << "len(pq) = " << pq.size() << " num_pq_pushed = " << num_pq_pushed << std::endl;
-      std::cout << "num_dets = " << node.num_dets << " max_num_dets = " << max_num_dets
-                << " cost = " << node.cost << std::endl;
+      std::cout << "num_dets = " << node.num_dets << " num_fresh_dets = " << node.num_fresh_dets
+                << " max_num_dets = " << max_num_dets << " cost = " << node.cost << std::endl;
       std::cout << "activated_errors = ";
       for (size_t oei : node.errors) {
         std::cout << oei << ", ";
@@ -378,48 +613,58 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       max_num_dets = std::min(max_num_dets, min_num_dets + detector_beam);
     }
 
-    for (size_t d = 0; d < num_detectors; ++d) {
-      if (!dets[d]) continue;
-      for (int ei : d2e[d]) {
-        ++detector_cost_tuples[ei].detectors_count;
-      }
-    }
+    // for (size_t d = 0; d < num_detectors; ++d) {
+    //   if (!dets[d]) continue;
+    //   for (int ei : d2e[d]) {
+    //     ++detector_cost_tuples[ei].num_dets;
+    //   }
+    // }
 
-    next_detector_cost_tuples = detector_cost_tuples;
+    // next_detector_cost_tuples = detector_cost_tuples;
 
-    size_t min_det = get_min_det(detector_order, dets);
+    size_t min_det = get_min_det(detector_order, dets, initial_dets, seed_dets);
 
-    size_t prev_ei = std::numeric_limits<size_t>::max();
-    std::vector<double> detector_cost_cache(num_detectors, -1);
+    // size_t prev_ei = std::numeric_limits<size_t>::max();
+    // std::vector<double> detector_cost_cache(num_detectors, -1);
 
     for (int ei : d2e[min_det]) {
       if (detector_cost_tuples[ei].error_blocked) continue;
 
-      if (prev_ei != std::numeric_limits<size_t>::max()) {
-        for (int d : edets[prev_ei]) {
-          int fired = dets[d] ? 1 : -1;
-          for (int oei : d2e[d]) {
-            next_detector_cost_tuples[oei].detectors_count += fired;
-          }
-        }
-      }
-      prev_ei = ei;
+      // if (prev_ei != std::numeric_limits<size_t>::max()) {
+      //   for (int d : edets[prev_ei]) {
+      //     int fired = dets[d] ? 1 : -1;
+      //     for (int oei : d2e[d]) {
+      //       next_detector_cost_tuples[oei].num_dets += fired;
+      //     }
+      //   }
+      // }
+      // prev_ei = ei;
 
       next_errors = node.errors;
       next_errors.push_back(ei);
       next_dets = dets;
+
+      std::vector<DetectorCostTuple> next_detector_cost_tuples(num_errors);
+      for (size_t oei = 0; oei < num_errors; ++oei) {
+        next_detector_cost_tuples[oei].error_blocked = detector_cost_tuples[oei].error_blocked;
+      }
+      for (int prev_ei : d2e[min_det]) {
+        if (prev_ei == ei) break;
+        next_detector_cost_tuples[prev_ei].error_blocked = true;
+      }
       next_detector_cost_tuples[ei].error_blocked = 1;
 
-      double next_cost = node.cost + errors[ei].likelihood_cost;
+      // double next_cost = node.cost + errors[ei].likelihood_cost;
+      double next_cost = 0;
       size_t next_num_dets = node.num_dets;
       size_t next_num_fresh_dets = node.num_fresh_dets;
       for (int d : edets[ei]) {
         next_dets[d] = !next_dets[d];
         int fired = next_dets[d] ? 1 : -1;
         next_num_dets += fired;
-        for (int oei : d2e[d]) {
-          next_detector_cost_tuples[oei].detectors_count += fired;
-        }
+        // for (int oei : d2e[d]) {
+        //   next_detector_cost_tuples[oei].num_dets += fired;
+        // }
         // Update the number of fresh dets
         if (!initial_dets[d]) {
           next_num_fresh_dets += fired;
@@ -432,26 +677,52 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
           visited_dets[next_num_dets].find(next_dets) != visited_dets[next_num_dets].end())
         continue;
 
-      for (int d : edets[ei]) {
-        if (dets[d]) {
-          if (detector_cost_cache[d] == -1) {
-            detector_cost_cache[d] = get_detcost(d, detector_cost_tuples);
-          }
-          next_cost -= detector_cost_cache[d];
-        } else {
+      // for (int d : edets[ei]) {
+      //   if (dets[d]) {
+      //     if (detector_cost_cache[d] == -1) {
+      //       detector_cost_cache[d] = get_detcost(d, detector_cost_tuples);
+      //     }
+      //     next_cost -= detector_cost_cache[d];
+      //   } else {
+      //     next_cost += get_detcost(d, next_detector_cost_tuples);
+      //   }
+      // }
+
+      // for (int od : eneighbors[ei]) {
+      //   if (!dets[od] || !next_dets[od]) continue;
+      //   if (detector_cost_cache[od] == -1) {
+      //     detector_cost_cache[od] = get_detcost(od, detector_cost_tuples);
+      //   }
+      //   next_cost -= detector_cost_cache[od];
+      //   next_cost += get_detcost(od, next_detector_cost_tuples);
+      // }
+
+      // Only count up fresh + seed dets
+      std::vector<char> next_fresh_and_seed_dets(num_detectors);
+      for (size_t d : seed_dets) {
+        if (next_dets[d]) {
+          // seed det
+          next_fresh_and_seed_dets[d] = true;
+        }
+      }
+      for (size_t d = 0; d < num_detectors; ++d) {
+        if (next_dets[d] and !initial_dets[d]) {
+          // fresh det
+          next_fresh_and_seed_dets[d] = true;
+        }
+      }
+      for (size_t d = 0; d < num_detectors; ++d) {
+        if (!next_fresh_and_seed_dets[d]) continue;
+        for (int oei : d2e[d]) {
+          ++next_detector_cost_tuples[oei].num_dets;
+        }
+      }
+      next_cost = cost_from_errors(next_errors);
+      for (size_t d = 0; d < num_detectors; ++d) {
+        if (next_fresh_and_seed_dets[d]) {
           next_cost += get_detcost(d, next_detector_cost_tuples);
         }
       }
-
-      for (int od : eneighbors[ei]) {
-        if (!dets[od] || !next_dets[od]) continue;
-        if (detector_cost_cache[od] == -1) {
-          detector_cost_cache[od] = get_detcost(od, detector_cost_tuples);
-        }
-        next_cost -= detector_cost_cache[od];
-        next_cost += get_detcost(od, next_detector_cost_tuples);
-      }
-
       if (next_cost == INF) continue;
 
       pq.push({next_cost, next_num_dets, next_num_fresh_dets, next_errors});
