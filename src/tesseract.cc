@@ -19,6 +19,7 @@
 #include <cassert>
 #include <functional>  // For std::hash (though not strictly necessary here, but good practice)
 #include <iostream>
+#include <chrono>
 
 namespace {
 
@@ -289,13 +290,31 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   for (uint64_t d : detections) {
     seeds.push_back({d});
   }
+
+  struct SeedDecodeResult {
+    std::vector<size_t> predicted_errors;
+    std::set<uint64_t> shell_errors;
+    std::set<uint64_t> shell_dets;
+    bool needs_recomputing = true;
+  };
+  std::vector<SeedDecodeResult> seed_results(seeds.size());
+
   while (true) {
+    std::cout << "Starting clustering iteration with " << seeds.size() << " seeds." << std::endl;
     // Used to find collisions between shells
     std::vector<std::vector<uint64_t>> error_to_seeds(num_errors);
     std::vector<std::vector<uint64_t>> det_to_seeds(num_detectors);
     // Find the optimal resolutions for each seed
     std::vector<size_t> predicted_errors_concat;
     std::vector<size_t> concat_seeds;
+    size_t seeds_to_redecode = 0;
+    for (size_t si = 0; si < seeds.size(); ++si) {
+      if (seed_results[si].needs_recomputing) {
+        seeds_to_redecode++;
+      }
+    }
+    std::cout << "Number of seeds to re-decode: " << seeds_to_redecode << " / " << seeds.size()
+              << std::endl;
     for (size_t si = 0; si < seeds.size(); ++si) {
       const auto& seed = seeds[si];
       for (size_t d : seed) {
@@ -304,31 +323,42 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       // The seed dets are the detection event indices for which we want to search for the optimal
       // resolution node The shell errors (like shell area in Blossom) are the errors that we
       // considered using (i.e., for any node visited during the search)
-      std::set<uint64_t> shell_errors;
-      std::set<uint64_t> shell_dets;
-      // std::cout << "decoding for seed " << si <<" with " << seed.size() <<" detection
-      // events"<<std::endl;
-      ++counter;
-      // std::cout<<"counter = "<<counter<<std::endl;
-      // if (counter == 8) {
-      //   config.verbose=true;
-      // } else {
-      //   config.verbose=false;
-      // }
-      predicted_errors_buffer.clear();
-      decode_to_errors_helper(detections, detector_order, detector_beam, seed, shell_errors,
-                              shell_dets);
-      assert(!low_confidence_flag);
-      predicted_errors_concat.insert(predicted_errors_concat.end(), predicted_errors_buffer.begin(),
-                                     predicted_errors_buffer.end());
+      if (seed_results[si].needs_recomputing) {
+        // std::cout << "decoding for seed " << si <<" with " << seed.size() <<" detection
+        // events"<<std::endl;
+        ++counter;
+        // std::cout<<"counter = "<<counter<<std::endl;
+        // if (counter == 8) {
+        //   config.verbose=true;
+        // } else {
+        //   config.verbose=false;
+        // }
+        predicted_errors_buffer.clear();
+        seed_results[si].shell_errors.clear();
+        seed_results[si].shell_dets.clear();
+        auto start_time = std::chrono::steady_clock::now();
+        decode_to_errors_helper(detections, detector_order, detector_beam, seed,
+                                seed_results[si].shell_errors, seed_results[si].shell_dets);
+        auto end_time = std::chrono::steady_clock::now();
+        double num_milliseconds =
+            std::chrono::duration<double, std::milli>(end_time - start_time).count();
+        std::cout << "Decoding seed " << si << " with " << seed.size() << " detection events took "
+                  << num_milliseconds << " ms." << std::endl;
+        assert(!low_confidence_flag);
+        seed_results[si].predicted_errors = predicted_errors_buffer;
+        seed_results[si].needs_recomputing = false;
+      }
+      predicted_errors_concat.insert(predicted_errors_concat.end(),
+                                     seed_results[si].predicted_errors.begin(),
+                                     seed_results[si].predicted_errors.end());
       // std::cout<<"got shell_errors.size() = " << shell_errors.size()
       //           <<" shell_dets.size() = "<<shell_dets.size()
       //           << " predicted_errors_buffer.size() = " << predicted_errors_buffer.size()
       //           << std::endl;
-      for (uint64_t ei : shell_errors) {
+      for (uint64_t ei : seed_results[si].shell_errors) {
         error_to_seeds[ei].push_back(si);
       }
-      for (uint64_t d : shell_dets) {
+      for (uint64_t d : seed_results[si].shell_dets) {
         det_to_seeds[d].push_back(si);
       }
     }
@@ -435,22 +465,38 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
         root_indices[si] = root_indices.size();
       }
     }
+    std::cout << "Number of seeds after merging: " << root_indices.size() << std::endl;
     // std::cout<<"root_indices = ";
     // for (auto & [r, i] : root_indices) {
     //   std::cout<<"("<<r<<","<<i<<") ";
     // }
     // std::cout<<std::endl;
     std::vector<std::vector<uint64_t>> next_seeds(root_indices.size());
+    std::vector<SeedDecodeResult> next_seed_results(root_indices.size());
+    std::vector<size_t> root_to_child_count(seeds.size(), 0);
     for (size_t si = 0; si < seeds.size(); ++si) {
-      std::vector<uint64_t>& seed = next_seeds[root_indices[find(si)]];
+      root_to_child_count[find(si)]++;
+    }
+
+    for (size_t si = 0; si < seeds.size(); ++si) {
+      size_t root = find(si);
+      size_t root_idx = root_indices[root];
+      std::vector<uint64_t>& seed = next_seeds[root_idx];
       for (size_t d : seeds[si]) {
         seed.push_back(d);
       }
+      if (root_to_child_count[root] > 1) {
+        next_seed_results[root_idx].needs_recomputing = true;
+      } else {
+        next_seed_results[root_idx] = seed_results[si];
+      }
     }
+
     for (size_t si = 0; si < next_seeds.size(); ++si) {
-      std::sort(next_seeds.begin(), next_seeds.end());
+      std::sort(next_seeds[si].begin(), next_seeds[si].end());
     }
     std::swap(next_seeds, seeds);
+    std::swap(next_seed_results, seed_results);
     next_seeds.clear();
   }
 }
