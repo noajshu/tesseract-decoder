@@ -29,8 +29,8 @@ OPT_COPTS = select({
 
         # Sanitizer
         "-O3",
-        "-fsanitize=address",
-        "-fsanitize=undefined",
+        # "-fsanitize=address",
+        # "-fsanitize=undefined",
 
         "-fno-fast-math",
         "-march=native",
@@ -49,8 +49,8 @@ OPT_LINKOPTS = select({
 
         # Sanitizer
         "-O3",
-        "-fsanitize=address",
-        "-fsanitize=undefined",
+        # "-fsanitize=address",
+        # "-fsanitize=undefined",
 
         "-fno-fast-math",
         "-march=native",
