@@ -287,16 +287,17 @@ static size_t counter = 0;
 void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
                                         size_t detector_order, size_t detector_beam) {
   std::vector<std::vector<uint64_t>> seeds;
-  for (uint64_t d : detections) {
-    seeds.push_back({d});
-  }
-  // seeds.push_back(detections);
+  // for (uint64_t d : detections) {
+  //   seeds.push_back({d});
+  // }
+  seeds.push_back(detections);
 
   struct SeedDecodeResult {
     std::vector<size_t> predicted_errors;
     std::set<uint64_t> shell_errors;
     std::set<uint64_t> shell_dets;
     bool needs_recomputing = true;
+    bool low_confidence_flag = false;
   };
   std::vector<SeedDecodeResult> seed_results(seeds.size());
 
@@ -351,9 +352,10 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
           std::cout << "Decoding seed " << si << " with " << seed.size()
                     << " detection events took " << num_milliseconds << " ms." << std::endl;
         }
-        assert(!low_confidence_flag);
+        // assert(!low_confidence_flag);
         seed_results[si].predicted_errors = predicted_errors_buffer;
         seed_results[si].needs_recomputing = false;
+        seed_results[si].low_confidence_flag = low_confidence_flag;
       }
       predicted_errors_concat.insert(predicted_errors_concat.end(),
                                      seed_results[si].predicted_errors.begin(),
@@ -427,6 +429,11 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
     // }
 
     if (!collision) {
+      // There should be no low confidence resolutions
+      for (size_t si = 0; si < seeds.size(); ++si) {
+        assert(!seed_results[si].low_confidence_flag);
+      }
+
       std::sort(predicted_errors_concat.begin(), predicted_errors_concat.end());
       // std::cout<<"predicted_errors_concat = ";
       // for (size_t ei: predicted_errors_concat) {
@@ -447,24 +454,25 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       for (size_t d : detections) {
         original_dets[d] = true;
       }
-      // std::cout<<"original_dets =  ";
-      // for (size_t d=0; d<num_detectors; ++d) {
-      //   if (original_dets[d]) {
-      //     std::cout<<d<<", ";
-      //   }
-      // }
-      // std::cout<<std::endl;
-      // std::cout<<"predicted_dets = ";
-      // for (size_t d=0; d<num_detectors; ++d) {
-      //   if (predicted_dets[d]) {
-      //     std::cout<<d<<", ";
-      //   }
-      // }
-      // std::cout<<std::endl;
+      std::cout<<"original_dets =  ";
+      for (size_t d=0; d<num_detectors; ++d) {
+        if (original_dets[d]) {
+          std::cout<<d<<", ";
+        }
+      }
+      std::cout<<std::endl;
+      std::cout<<"predicted_dets = ";
+      for (size_t d=0; d<num_detectors; ++d) {
+        if (predicted_dets[d]) {
+          std::cout<<d<<", ";
+        }
+      }
+      std::cout<<std::endl;
 
       assert(predicted_dets == original_dets);
       return;
     }
+    // There was a collision
     // At this point we need to extract the new seeds. We assign each one an index.
     std::map<size_t, size_t> root_indices;
     for (size_t si = 0; si < parents.size(); ++si) {
@@ -498,6 +506,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
         next_seed_results[root_idx].needs_recomputing = true;
       } else {
         next_seed_results[root_idx] = seed_results[si];
+        assert(!seed_results[si].low_confidence_flag);
       }
     }
 
