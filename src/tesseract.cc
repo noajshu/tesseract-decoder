@@ -17,9 +17,9 @@
 #include <algorithm>
 #include <boost/functional/hash.hpp>  // For boost::hash_range
 #include <cassert>
+#include <chrono>
 #include <functional>  // For std::hash (though not strictly necessary here, but good practice)
 #include <iostream>
-#include <chrono>
 
 namespace {
 
@@ -81,7 +81,16 @@ std::string Node::str() const {
 }
 
 bool Node::operator>(const Node& other) const {
-  return cost > other.cost || (cost == other.cost && num_dets < other.num_dets);
+  // Primary sort key: cost (ascending)
+  if (cost != other.cost) {
+    return cost > other.cost;
+  }
+  // Secondary sort key: num_dets (descending)
+  if (num_dets != other.num_dets) {
+    return num_dets < other.num_dets;
+  }
+  // Tertiary, deterministic tie-breaker: the error path
+  return errors > other.errors;
 }
 
 double TesseractDecoder::get_detcost(
@@ -162,7 +171,12 @@ void TesseractDecoder::initialize_structures(size_t num_detectors) {
 
   for (size_t d = 0; d < num_detectors; ++d) {
     std::sort(d2e[d].begin(), d2e[d].end(), [this](size_t idx_a, size_t idx_b) {
-      return error_costs[idx_a].min_cost < error_costs[idx_b].min_cost;
+      // Primary comparison on cost
+      if (error_costs[idx_a].min_cost != error_costs[idx_b].min_cost) {
+        return error_costs[idx_a].min_cost < error_costs[idx_b].min_cost;
+      }
+      // Deterministic tie-breaker on the index itself
+      return idx_a < idx_b;
     });
   }
 
@@ -249,10 +263,6 @@ size_t TesseractDecoder::get_min_det(size_t detector_order, const boost::dynamic
   // This must only return dets in the seed dets or fresh dets
   for (size_t d = 0; d < num_detectors; ++d) {
     size_t dod = config.det_orders[detector_order][d];
-    // HACK TEST: just return any detection event
-    if (dets[dod]) {
-      return dod;
-    }
     if (dets[dod] and !initial_dets[dod]) {
       // If this is a fresh det
       return dod;
@@ -283,15 +293,15 @@ void TesseractDecoder::flip_detectors_and_block_errors(
   }
 }
 
-static size_t counter = 0;
+// static size_t counter = 0;
 
 void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
                                         size_t detector_order, size_t detector_beam) {
   std::vector<std::vector<uint64_t>> seeds;
-  // for (uint64_t d : detections) {
-  //   seeds.push_back({d});
-  // }
-  seeds.push_back(detections);
+  for (uint64_t d : detections) {
+    seeds.push_back({d});
+  }
+  // seeds.push_back(detections);
 
   struct SeedDecodeResult {
     std::vector<size_t> predicted_errors;
@@ -333,7 +343,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       if (seed_results[si].needs_recomputing) {
         // std::cout << "decoding for seed " << si <<" with " << seed.size() <<" detection
         // events"<<std::endl;
-        ++counter;
+        // ++counter;
         // std::cout<<"counter = "<<counter<<std::endl;
         // if (counter == 8) {
         //   config.verbose=true;
@@ -432,7 +442,12 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
     if (!collision) {
       // There should be no low confidence resolutions
       for (size_t si = 0; si < seeds.size(); ++si) {
-        assert(!seed_results[si].low_confidence_flag);
+        if (seed_results[si].low_confidence_flag) {
+          low_confidence_flag = true;
+          predicted_errors_buffer.clear();
+          return;
+        }
+        // assert(!seed_results[si].low_confidence_flag);
       }
 
       std::sort(predicted_errors_concat.begin(), predicted_errors_concat.end());
@@ -507,7 +522,6 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
         next_seed_results[root_idx].needs_recomputing = true;
       } else {
         next_seed_results[root_idx] = seed_results[si];
-        assert(!seed_results[si].low_confidence_flag);
       }
     }
 
@@ -765,7 +779,7 @@ void TesseractDecoder::decode_to_errors_helper(const std::vector<uint64_t>& dete
       // Only count up fresh + seed dets
       std::vector<char> next_fresh_and_seed_dets(num_detectors);
       for (size_t d : seed_dets) {
-        assert (initial_dets[d]);
+        assert(initial_dets[d]);
         if (next_dets[d]) {
           // seed det
           next_fresh_and_seed_dets[d] = true;
@@ -790,6 +804,15 @@ void TesseractDecoder::decode_to_errors_helper(const std::vector<uint64_t>& dete
         }
       }
       if (next_cost == INF) continue;
+
+      // ADD THIS LOGGING BLOCK:
+      if (config.verbose) {
+        std::cout.precision(17);  // Use high precision for doubles
+        std::cout << "  [PQ PUSH?] from min_det=" << min_det << " | considering ei=" << ei
+                  << " | next_cost=" << next_cost << " | next_num_dets=" << next_num_dets
+                  << " | next_num_fresh_dets=" << next_num_fresh_dets
+                  << " | next_errors=" << next_errors << std::endl;
+      }
 
       pq.push({next_cost, next_num_dets, next_num_fresh_dets, next_errors});
       ++num_pq_pushed;
