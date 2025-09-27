@@ -796,7 +796,7 @@ void TesseractDecoder::decode_to_errors_helper(const std::vector<uint64_t>& dete
 
       if (num_pq_pushed > config.pqlimit) {
         if (config.verbose) {
-          std::cout<<"setting low confidence flag"<<std::endl;
+          std::cout << "setting low confidence flag" << std::endl;
         }
         low_confidence_flag = true;
         return;
