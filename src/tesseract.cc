@@ -248,16 +248,20 @@ size_t TesseractDecoder::get_min_det(size_t detector_order, const boost::dynamic
                                      const std::vector<uint64_t>& seed_dets) const {
   // This must only return dets in the seed dets or fresh dets
   // Now look for seed dets
-  for (uint64_t d : seed_dets) {
-    if (dets[d]) {
-      return d;
-    }
-  }
+  // for (uint64_t d : seed_dets) {
+  //   if (dets[d]) {
+  //     return d;
+  //   }
+  // }
   // Look for fresh dets
   for (size_t d = 0; d < num_detectors; ++d) {
     size_t dod = config.det_orders[detector_order][d];
     if (dets[dod] and !initial_dets[dod]) {
       // If this is a fresh det
+      return dod;
+    }
+    if (dets[dod] and std::find(seed_dets.begin(), seed_dets.end(), dod) != seed_dets.end()) {
+      // If this is a seed det
       return dod;
     }
   }
@@ -454,20 +458,20 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       for (size_t d : detections) {
         original_dets[d] = true;
       }
-      std::cout<<"original_dets =  ";
-      for (size_t d=0; d<num_detectors; ++d) {
-        if (original_dets[d]) {
-          std::cout<<d<<", ";
-        }
-      }
-      std::cout<<std::endl;
-      std::cout<<"predicted_dets = ";
-      for (size_t d=0; d<num_detectors; ++d) {
-        if (predicted_dets[d]) {
-          std::cout<<d<<", ";
-        }
-      }
-      std::cout<<std::endl;
+      // std::cout<<"original_dets =  ";
+      // for (size_t d=0; d<num_detectors; ++d) {
+      //   if (original_dets[d]) {
+      //     std::cout<<d<<", ";
+      //   }
+      // }
+      // std::cout<<std::endl;
+      // std::cout<<"predicted_dets = ";
+      // for (size_t d=0; d<num_detectors; ++d) {
+      //   if (predicted_dets[d]) {
+      //     std::cout<<d<<", ";
+      //   }
+      // }
+      // std::cout<<std::endl;
 
       assert(predicted_dets == original_dets);
       return;
