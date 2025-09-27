@@ -247,15 +247,12 @@ size_t TesseractDecoder::get_min_det(size_t detector_order, const boost::dynamic
                                      const boost::dynamic_bitset<>& initial_dets,
                                      const std::vector<uint64_t>& seed_dets) const {
   // This must only return dets in the seed dets or fresh dets
-  // Now look for seed dets
-  // for (uint64_t d : seed_dets) {
-  //   if (dets[d]) {
-  //     return d;
-  //   }
-  // }
-  // Look for fresh dets
   for (size_t d = 0; d < num_detectors; ++d) {
     size_t dod = config.det_orders[detector_order][d];
+    // HACK TEST: just return any detection event
+    if (dets[dod]) {
+      return dod;
+    }
     if (dets[dod] and !initial_dets[dod]) {
       // If this is a fresh det
       return dod;
@@ -768,6 +765,7 @@ void TesseractDecoder::decode_to_errors_helper(const std::vector<uint64_t>& dete
       // Only count up fresh + seed dets
       std::vector<char> next_fresh_and_seed_dets(num_detectors);
       for (size_t d : seed_dets) {
+        assert (initial_dets[d]);
         if (next_dets[d]) {
           // seed det
           next_fresh_and_seed_dets[d] = true;
@@ -797,6 +795,9 @@ void TesseractDecoder::decode_to_errors_helper(const std::vector<uint64_t>& dete
       ++num_pq_pushed;
 
       if (num_pq_pushed > config.pqlimit) {
+        if (config.verbose) {
+          std::cout<<"setting low confidence flag"<<std::endl;
+        }
         low_confidence_flag = true;
         return;
       }
