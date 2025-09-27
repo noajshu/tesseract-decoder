@@ -290,6 +290,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   for (uint64_t d : detections) {
     seeds.push_back({d});
   }
+  // seeds.push_back(detections);
 
   struct SeedDecodeResult {
     std::vector<size_t> predicted_errors;
@@ -300,7 +301,9 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   std::vector<SeedDecodeResult> seed_results(seeds.size());
 
   while (true) {
-    std::cout << "Starting clustering iteration with " << seeds.size() << " seeds." << std::endl;
+    if (config.verbose) {
+      std::cout << "Starting clustering iteration with " << seeds.size() << " seeds." << std::endl;
+    }
     // Used to find collisions between shells
     std::vector<std::vector<uint64_t>> error_to_seeds(num_errors);
     std::vector<std::vector<uint64_t>> det_to_seeds(num_detectors);
@@ -313,8 +316,10 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
         seeds_to_redecode++;
       }
     }
-    std::cout << "Number of seeds to re-decode: " << seeds_to_redecode << " / " << seeds.size()
-              << std::endl;
+    if (config.verbose) {
+      std::cout << "Number of seeds to re-decode: " << seeds_to_redecode << " / " << seeds.size()
+                << std::endl;
+    }
     for (size_t si = 0; si < seeds.size(); ++si) {
       const auto& seed = seeds[si];
       for (size_t d : seed) {
@@ -342,8 +347,10 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
         auto end_time = std::chrono::steady_clock::now();
         double num_milliseconds =
             std::chrono::duration<double, std::milli>(end_time - start_time).count();
-        std::cout << "Decoding seed " << si << " with " << seed.size() << " detection events took "
-                  << num_milliseconds << " ms." << std::endl;
+        if (config.verbose) {
+          std::cout << "Decoding seed " << si << " with " << seed.size()
+                    << " detection events took " << num_milliseconds << " ms." << std::endl;
+        }
         assert(!low_confidence_flag);
         seed_results[si].predicted_errors = predicted_errors_buffer;
         seed_results[si].needs_recomputing = false;
@@ -465,7 +472,9 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
         root_indices[si] = root_indices.size();
       }
     }
-    std::cout << "Number of seeds after merging: " << root_indices.size() << std::endl;
+    if (config.verbose) {
+      std::cout << "Number of seeds after merging: " << root_indices.size() << std::endl;
+    }
     // std::cout<<"root_indices = ";
     // for (auto & [r, i] : root_indices) {
     //   std::cout<<"("<<r<<","<<i<<") ";
