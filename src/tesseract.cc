@@ -209,94 +209,6 @@ void TesseractDecoder::initialize_structures(size_t num_detectors) {
 }
 
 void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections) {
-  std::vector<size_t> best_errors;
-  double best_cost = std::numeric_limits<double>::max();
-  if (config.det_orders.empty()) {
-    throw std::runtime_error("Detector orders list must not be empty before decoding.");
-  }
-
-  if (config.beam_climbing) {
-    int beam = 0;
-    int detector_order = 0;
-    for (int trial = 0; trial < std::max(config.det_beam + 1, int(config.det_orders.size()));
-         ++trial) {
-      decode_to_errors(detections, detector_order, beam);
-      double local_cost = cost_from_errors(predicted_errors_buffer);
-      if (!low_confidence_flag && local_cost < best_cost) {
-        best_errors = predicted_errors_buffer;
-        best_cost = local_cost;
-      }
-      if (config.verbose) {
-        std::cout << "for detector_order " << detector_order << " beam " << beam
-                  << " got low confidence " << low_confidence_flag << " and cost " << local_cost
-                  << " and obs_mask " << get_flipped_observables(predicted_errors_buffer)
-                  << ". Best cost so far: " << best_cost << std::endl;
-      }
-      beam += 1;
-      detector_order += 1;
-      beam %= (config.det_beam + 1);
-      detector_order %= config.det_orders.size();
-    }
-  } else {
-    for (size_t detector_order = 0; detector_order < config.det_orders.size(); ++detector_order) {
-      decode_to_errors(detections, detector_order, config.det_beam);
-      double local_cost = cost_from_errors(predicted_errors_buffer);
-      if (!low_confidence_flag && local_cost < best_cost) {
-        best_errors = predicted_errors_buffer;
-        best_cost = local_cost;
-      }
-      if (config.verbose) {
-        std::cout << "for detector_order " << detector_order << " beam " << config.det_beam
-                  << " got low confidence " << low_confidence_flag << " and cost " << local_cost
-                  << " and obs_mask " << get_flipped_observables(predicted_errors_buffer)
-                  << ". Best cost so far: " << best_cost << std::endl;
-      }
-    }
-  }
-  predicted_errors_buffer = best_errors;
-  low_confidence_flag = best_cost == std::numeric_limits<double>::max();
-}
-
-size_t TesseractDecoder::get_min_det(size_t detector_order, const boost::dynamic_bitset<>& dets,
-                                     const boost::dynamic_bitset<>& initial_dets,
-                                     const std::vector<uint64_t>& seed_dets) const {
-  // This must only return dets in the seed dets or fresh dets
-  for (size_t d = 0; d < num_detectors; ++d) {
-    size_t dod = config.det_orders[detector_order][d];
-    if (dets[dod] and !initial_dets[dod]) {
-      // If this is a fresh det
-      return dod;
-    }
-    if (dets[dod] and std::find(seed_dets.begin(), seed_dets.end(), dod) != seed_dets.end()) {
-      // If this is a seed det
-      return dod;
-    }
-  }
-  return std::numeric_limits<size_t>::max();
-}
-
-void TesseractDecoder::flip_detectors_and_block_errors(
-    size_t detector_order, const std::vector<size_t>& errors, boost::dynamic_bitset<>& dets,
-    const boost::dynamic_bitset<>& initial_dets, const std::vector<uint64_t>& seed_dets,
-    std::vector<DetectorCostTuple>& detector_cost_tuples) const {
-  for (size_t ei : errors) {
-    size_t min_det = get_min_det(detector_order, dets, initial_dets, seed_dets);
-
-    for (size_t oei : d2e[min_det]) {
-      detector_cost_tuples[oei].error_blocked = 1;
-      if (oei == ei) break;
-    }
-
-    for (int d : edets[ei]) {
-      dets[d] = !dets[d];
-    }
-  }
-}
-
-// static size_t counter = 0;
-
-void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
-                                        size_t detector_order, size_t detector_beam) {
   std::vector<std::vector<uint64_t>> seeds;
   for (uint64_t d : detections) {
     seeds.push_back({d});
@@ -314,7 +226,8 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
 
   while (true) {
     if (config.verbose) {
-      std::cout << "Starting clustering iteration with " << seeds.size() << " seeds." << std::endl;
+      std::cout << "CLUSTER: Starting clustering iteration with " << seeds.size() << " seeds."
+                << std::endl;
     }
     // Used to find collisions between shells
     std::vector<std::vector<uint64_t>> error_to_seeds(num_errors);
@@ -329,8 +242,8 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       }
     }
     if (config.verbose) {
-      std::cout << "Number of seeds to re-decode: " << seeds_to_redecode << " / " << seeds.size()
-                << std::endl;
+      std::cout << "CLUSTER: Number of seeds to re-decode: " << seeds_to_redecode << " / "
+                << seeds.size() << std::endl;
     }
     for (size_t si = 0; si < seeds.size(); ++si) {
       const auto& seed = seeds[si];
@@ -354,13 +267,14 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
         seed_results[si].shell_errors.clear();
         seed_results[si].shell_dets.clear();
         auto start_time = std::chrono::steady_clock::now();
-        decode_to_errors_helper(detections, detector_order, detector_beam, seed,
-                                seed_results[si].shell_errors, seed_results[si].shell_dets);
+        // Find a resolution of the seed
+        resolve_to_errors_ensemble(detections, seed, seed_results[si].shell_errors,
+                                   seed_results[si].shell_dets);
         auto end_time = std::chrono::steady_clock::now();
         double num_milliseconds =
             std::chrono::duration<double, std::milli>(end_time - start_time).count();
         if (config.verbose) {
-          std::cout << "Decoding seed " << si << " with " << seed.size()
+          std::cout << "CLUSTER: Decoding seed " << si << " with " << seed.size()
                     << " detection events took " << num_milliseconds << " ms." << std::endl;
         }
         // assert(!low_confidence_flag);
@@ -497,7 +411,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
       }
     }
     if (config.verbose) {
-      std::cout << "Number of seeds after merging: " << root_indices.size() << std::endl;
+      std::cout << "CLUSTER: Number of seeds after merging: " << root_indices.size() << std::endl;
     }
     // std::cout<<"root_indices = ";
     // for (auto & [r, i] : root_indices) {
@@ -534,11 +448,101 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   }
 }
 
-void TesseractDecoder::decode_to_errors_helper(const std::vector<uint64_t>& detections,
-                                               size_t detector_order, size_t detector_beam,
-                                               const std::vector<uint64_t>& seed_dets,
-                                               std::set<uint64_t>& shell_errors,
-                                               std::set<uint64_t>& shell_dets) {
+void TesseractDecoder::resolve_to_errors_ensemble(const std::vector<uint64_t>& detections,
+                                                  const std::vector<uint64_t>& seed_dets,
+                                                  std::set<uint64_t>& shell_errors,
+                                                  std::set<uint64_t>& shell_dets) {
+  std::vector<size_t> best_errors;
+  double best_cost = std::numeric_limits<double>::max();
+  if (config.det_orders.empty()) {
+    throw std::runtime_error("Detector orders list must not be empty before decoding.");
+  }
+
+  if (config.beam_climbing) {
+    int beam = 0;
+    int detector_order = 0;
+    for (int trial = 0; trial < std::max(config.det_beam + 1, int(config.det_orders.size()));
+         ++trial) {
+      resolve_to_errors(detections, detector_order, beam, seed_dets, shell_errors, shell_dets);
+
+      double local_cost = cost_from_errors(predicted_errors_buffer);
+      if (!low_confidence_flag && local_cost < best_cost) {
+        best_errors = predicted_errors_buffer;
+        best_cost = local_cost;
+      }
+      if (config.verbose) {
+        std::cout << "for detector_order " << detector_order << " beam " << beam
+                  << " got low confidence " << low_confidence_flag << " and cost " << local_cost
+                  << " and obs_mask " << get_flipped_observables(predicted_errors_buffer)
+                  << ". Best cost so far: " << best_cost << std::endl;
+      }
+      beam += 1;
+      detector_order += 1;
+      beam %= (config.det_beam + 1);
+      detector_order %= config.det_orders.size();
+    }
+  } else {
+    for (size_t detector_order = 0; detector_order < config.det_orders.size(); ++detector_order) {
+      resolve_to_errors(detections, detector_order, config.det_beam, seed_dets, shell_errors,
+                        shell_dets);
+      double local_cost = cost_from_errors(predicted_errors_buffer);
+      if (!low_confidence_flag && local_cost < best_cost) {
+        best_errors = predicted_errors_buffer;
+        best_cost = local_cost;
+      }
+      if (config.verbose) {
+        std::cout << "for detector_order " << detector_order << " beam " << config.det_beam
+                  << " got low confidence " << low_confidence_flag << " and cost " << local_cost
+                  << " and obs_mask " << get_flipped_observables(predicted_errors_buffer)
+                  << ". Best cost so far: " << best_cost << std::endl;
+      }
+    }
+  }
+  predicted_errors_buffer = best_errors;
+  low_confidence_flag = best_cost == std::numeric_limits<double>::max();
+}
+
+size_t TesseractDecoder::get_min_det(size_t detector_order, const boost::dynamic_bitset<>& dets,
+                                     const boost::dynamic_bitset<>& initial_dets,
+                                     const std::vector<uint64_t>& seed_dets) const {
+  // This must only return dets in the seed dets or fresh dets
+  for (size_t d = 0; d < num_detectors; ++d) {
+    size_t dod = config.det_orders[detector_order][d];
+    if (dets[dod] and !initial_dets[dod]) {
+      // If this is a fresh det
+      return dod;
+    }
+    if (dets[dod] and std::find(seed_dets.begin(), seed_dets.end(), dod) != seed_dets.end()) {
+      // If this is a seed det
+      return dod;
+    }
+  }
+  return std::numeric_limits<size_t>::max();
+}
+
+void TesseractDecoder::flip_detectors_and_block_errors(
+    size_t detector_order, const std::vector<size_t>& errors, boost::dynamic_bitset<>& dets,
+    const boost::dynamic_bitset<>& initial_dets, const std::vector<uint64_t>& seed_dets,
+    std::vector<DetectorCostTuple>& detector_cost_tuples) const {
+  for (size_t ei : errors) {
+    size_t min_det = get_min_det(detector_order, dets, initial_dets, seed_dets);
+
+    for (size_t oei : d2e[min_det]) {
+      detector_cost_tuples[oei].error_blocked = 1;
+      if (oei == ei) break;
+    }
+
+    for (int d : edets[ei]) {
+      dets[d] = !dets[d];
+    }
+  }
+}
+
+void TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections,
+                                         size_t detector_order, size_t detector_beam,
+                                         const std::vector<uint64_t>& seed_dets,
+                                         std::set<uint64_t>& shell_errors,
+                                         std::set<uint64_t>& shell_dets) {
   predicted_errors_buffer.clear();
   low_confidence_flag = false;
 
@@ -804,15 +808,6 @@ void TesseractDecoder::decode_to_errors_helper(const std::vector<uint64_t>& dete
         }
       }
       if (next_cost == INF) continue;
-
-      // ADD THIS LOGGING BLOCK:
-      if (config.verbose) {
-        std::cout.precision(17);  // Use high precision for doubles
-        std::cout << "  [PQ PUSH?] from min_det=" << min_det << " | considering ei=" << ei
-                  << " | next_cost=" << next_cost << " | next_num_dets=" << next_num_dets
-                  << " | next_num_fresh_dets=" << next_num_fresh_dets
-                  << " | next_errors=" << next_errors << std::endl;
-      }
 
       pq.push({next_cost, next_num_dets, next_num_fresh_dets, next_errors});
       ++num_pq_pushed;
