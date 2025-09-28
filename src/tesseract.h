@@ -79,12 +79,14 @@ struct TesseractDecoder {
   // these detection events.
   void decode_to_errors(const std::vector<uint64_t>& detections);
 
-  void resolve_to_errors_ensemble(const std::vector<uint64_t>& detections,
-                                  const std::vector<uint64_t>& seed_dets,
-                                  std::set<uint64_t>& shell_errors, std::set<uint64_t>& shell_dets);
-  void resolve_to_errors(const std::vector<uint64_t>& detections, size_t detector_order,
+  bool resolve_to_errors_ensemble(const std::vector<uint64_t>& detections,
+                                  const std::vector<uint64_t>& seed_dets, size_t seed_id,
+                                  std::vector<size_t>& parents, std::vector<size_t>& error_owner,
+                                  std::vector<size_t>& det_owner);
+  bool resolve_to_errors(const std::vector<uint64_t>& detections, size_t detector_order,
                          size_t detector_beam, const std::vector<uint64_t>& seed_dets,
-                         std::set<uint64_t>& shell_errors, std::set<uint64_t>& shell_dets);
+                         size_t seed_id, std::vector<size_t>& parents,
+                         std::vector<size_t>& error_owner, std::vector<size_t>& det_owner);
 
   // Returns the bitwise XOR of all the observables bitmasks of all errors in
   // the predicted errors buffer.

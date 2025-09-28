@@ -25,10 +25,10 @@ config_setting(
 
 OPT_COPTS = select({
     "//conditions:default": [
-        # "-Ofast",
+        "-Ofast",
 
         # Sanitizer
-        "-O3",
+        # "-O3",
         # "-fsanitize=address",
         # "-fsanitize=undefined",
 
@@ -45,10 +45,10 @@ OPT_COPTS = select({
 
 OPT_LINKOPTS = select({
     "//conditions:default": [
-        # "-Ofast",
+        "-Ofast",
 
         # Sanitizer
-        "-O3",
+        # "-O3",
         # "-fsanitize=address",
         # "-fsanitize=undefined",
 
