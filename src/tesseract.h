@@ -123,6 +123,7 @@ struct TesseractDecoder {
                                        boost::dynamic_bitset<>& dets,
                                        const boost::dynamic_bitset<>& initial_dets,
                                        const std::vector<uint64_t>& seed_dets,
+                                       const std::vector<bool>& seed_dets_bools,
                                        std::vector<DetectorCostTuple>& detector_cost_tuples) const;
   size_t get_min_det(size_t detector_order, const boost::dynamic_bitset<>& dets,
                      const boost::dynamic_bitset<>& initial_dets,
