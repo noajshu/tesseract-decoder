@@ -557,6 +557,7 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
     size_t min_det = get_min_det(detector_order, dets, initial_dets, seed_dets);
 
     size_t prev_ei = std::numeric_limits<size_t>::max();
+    std::vector<double> detcost_cache(num_detectors, -1);
 
     // We incrementally maintain the correct detector cost tuples
     std::vector<DetectorCostTuple> next_detector_cost_tuples = detector_cost_tuples;
@@ -607,14 +608,47 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
           visited_dets[next_num_dets].find(next_dets) != visited_dets[next_num_dets].end())
         continue;
 
-      // TODO: make all of this incremental
+      // next_cost = cost_from_errors(next_errors);
+      next_cost = node.cost + errors[ei].likelihood_cost;
 
-      next_cost = cost_from_errors(next_errors);
-      for (size_t d = 0; d < num_detectors; ++d) {
-        if (next_dets[d] and (!initial_dets[d] or seed_dets_bools[d])) {
-          next_cost += get_detcost(d, next_detector_cost_tuples);
+      for (size_t d : edets[ei]) {
+        if (!initial_dets[d] or seed_dets_bools[d]) {
+          // This detector must eventually be turned off as it is a fresh or seed det, so we include
+          // the cost lower bound for doing so in the total detcost (A* penalty)
+          if (dets[d]) {
+            // This detector was on and is now turning off, so we need to subtract its old detcost
+            if (detcost_cache[d] == -1) {
+              detcost_cache[d] = get_detcost(d, detector_cost_tuples);
+            }
+            next_cost -= detcost_cache[d];
+          } else {
+            // This detector was off and is now turning on, so we need to add the new detcost
+            next_cost += get_detcost(d, next_detector_cost_tuples);
+          }
         }
       }
+
+      for (int od : eneighbors[ei]) {
+        // We have to update the detcost contribution from extant fresh and seed dets in the
+        // neighborhood If this detector is off or flipped, it is irrelevant if (!dets[od] ||
+        // !next_dets[od]) continue;
+        if (!dets[od]) continue;
+        assert(dets[od] == next_dets[od]);  // edets[ei] is supposedly removed from eneighbors[ei]
+        if (!initial_dets[od] or seed_dets_bools[od]) {
+          // This is an extant fresh or seed det
+          if (detcost_cache[od] == -1) {
+            detcost_cache[od] = get_detcost(od, detector_cost_tuples);
+          }
+          next_cost -= detcost_cache[od];
+          next_cost += get_detcost(od, next_detector_cost_tuples);
+        }
+      }
+
+      // for (size_t d = 0; d < num_detectors; ++d) {
+      //   if (next_dets[d] and (!initial_dets[d] or seed_dets_bools[d])) {
+      //     next_cost += get_detcost(d, next_detector_cost_tuples);
+      //   }
+      // }
 
       if (next_cost == INF) continue;
 
