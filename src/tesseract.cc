@@ -599,6 +599,7 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
           ++next_detector_cost_tuples[oei].num_dets;
         }
       }
+      // TODO: make all of this incremental
       next_cost = cost_from_errors(next_errors);
       for (size_t d = 0; d < num_detectors; ++d) {
         if (next_fresh_and_seed_dets[d]) {
