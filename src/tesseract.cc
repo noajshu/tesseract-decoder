@@ -644,12 +644,6 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
         }
       }
 
-      // for (size_t d = 0; d < num_detectors; ++d) {
-      //   if (next_dets[d] and (!initial_dets[d] or seed_dets_bools[d])) {
-      //     next_cost += get_detcost(d, next_detector_cost_tuples);
-      //   }
-      // }
-
       if (next_cost == INF) continue;
 
       pq.push({next_cost, next_num_dets, next_num_fresh_dets, next_errors});
