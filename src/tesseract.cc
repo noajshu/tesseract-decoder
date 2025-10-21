@@ -336,7 +336,7 @@ bool TesseractDecoder::resolve_to_errors_ensemble(const std::vector<uint64_t>& d
     int detector_order = 0;
     for (int trial = 0; trial < std::max(config.det_beam + 1, int(config.det_orders.size()));
          ++trial) {
-      if (resolve_to_errors(detections, detector_order, beam, seed_dets, seed_id, parents,
+      if (resolve_to_errors(detections, detector_order, config.det_beam-beam, seed_dets, seed_id, parents,
                             error_owner, det_owner)) {
         return true;  // Collision detected, propagate signal up.
       }
@@ -347,10 +347,13 @@ bool TesseractDecoder::resolve_to_errors_ensemble(const std::vector<uint64_t>& d
         best_cost = local_cost;
       }
       if (config.verbose) {
-        std::cout << "for detector_order " << detector_order << " beam " << beam
+        std::cout << "for detector_order " << detector_order << " beam " << (config.det_beam-beam)
                   << " got low confidence " << low_confidence_flag << " and cost " << local_cost
                   << " and obs_mask " << get_flipped_observables(predicted_errors_buffer)
                   << ". Best cost so far: " << best_cost << std::endl;
+      }
+      if (!low_confidence_flag) {
+        break;
       }
       beam += 1;
       detector_order += 1;
@@ -396,6 +399,10 @@ size_t TesseractDecoder::get_min_det(size_t detector_order, const boost::dynamic
       return dod;
     }
   }
+  // if (fresh_and_seed_dets.size()) {
+  //   std::sort(fresh_and_seed_dets.begin(), fresh_and_seed_dets.end());
+  //   return fresh_and_seed_dets.front();
+  // }
   return std::numeric_limits<size_t>::max();
 }
 
@@ -416,11 +423,11 @@ void TesseractDecoder::flip_detectors_and_block_errors(
       dets[d] = !dets[d];
       int fired = dets[d] ? 1 : -1;
       // Incrementally update the detector cost tuples
-      if (!initial_dets[d] or seed_dets_bools[d]) {
+      // if (!initial_dets[d] or seed_dets_bools[d]) {
         for (size_t oei : d2e[d]) {
           detector_cost_tuples[oei].num_dets += fired;
         }
-      }
+      // }
     }
   }
 }
@@ -444,7 +451,8 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
     initial_dets[d] = true;
   }
   std::vector<bool> seed_dets_bools(num_detectors);
-  for (size_t d : seed_dets) {
+  // for (size_t d : seed_dets) {
+  for (size_t d : detections) {
     for (int ei : d2e[d]) {
       ++initial_detector_cost_tuples[ei].num_dets;
     }
@@ -452,7 +460,8 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
   }
 
   double initial_cost = 0;
-  for (size_t d : seed_dets) {
+  // for (size_t d : seed_dets) {
+  for (size_t d : detections) {
     assert(initial_dets[d]);
     initial_cost += get_detcost(d, initial_detector_cost_tuples);
   }
@@ -487,6 +496,9 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
         error_owner[ei] = current_root;
       } else if (find(parents, owner_root) != current_root) {
         // TODO: simplify by making do_union return a bool
+        if (config.verbose) {
+          std::cout<<"CLUSTER: do_union("<<current_root <<", "<<owner_root<<")"<<std::endl;
+        }
         do_union(parents, current_root, owner_root);
         return true;  // Collision detected and merged.
       }
@@ -526,6 +538,9 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
               det_owner[d] = current_root;
               assert(false && "unreachable");
             } else if (find(parents, owner_root) != current_root) {
+              if (config.verbose) {
+                std::cout<<"CLUSTER: do_union("<<current_root <<", "<<owner_root<<")"<<std::endl;
+              }
               do_union(parents, current_root, owner_root);
               return true;  // Collision detected and merged.
             }
@@ -567,12 +582,12 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
       // Undo previous updates to next_detector_cost_tuples
       if (prev_ei != std::numeric_limits<size_t>::max()) {
         for (int d : edets[prev_ei]) {
-          if (!initial_dets[d] or seed_dets_bools[d]) {
+          // if (!initial_dets[d] or seed_dets_bools[d]) {
             int fired = dets[d] ? 1 : -1;
             for (size_t oei : d2e[d]) {
               next_detector_cost_tuples[oei].num_dets += fired;
             }
-          }
+          // }
         }
       }
       prev_ei = ei;
@@ -595,11 +610,11 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
           next_num_fresh_dets += fired;
         }
         // Incrementally update the detector cost tuples
-        if (!initial_dets[d] or seed_dets_bools[d]) {
+        // if (!initial_dets[d] or seed_dets_bools[d]) {
           for (size_t oei : d2e[d]) {
             next_detector_cost_tuples[oei].num_dets += fired;
           }
-        }
+        // }
       }
 
       if (next_num_dets > max_num_dets) continue;
@@ -612,7 +627,7 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
       next_cost = node.cost + errors[ei].likelihood_cost;
 
       for (size_t d : edets[ei]) {
-        if (!initial_dets[d] or seed_dets_bools[d]) {
+        // if (!initial_dets[d] or seed_dets_bools[d]) {
           // This detector must eventually be turned off as it is a fresh or seed det, so we include
           // the cost lower bound for doing so in the total detcost (A* penalty)
           if (dets[d]) {
@@ -625,7 +640,7 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
             // This detector was off and is now turning on, so we need to add the new detcost
             next_cost += get_detcost(d, next_detector_cost_tuples);
           }
-        }
+        // }
       }
 
       for (int od : eneighbors[ei]) {
@@ -634,14 +649,14 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
         // !next_dets[od]) continue;
         if (!dets[od]) continue;
         assert(dets[od] == next_dets[od]);  // edets[ei] is supposedly removed from eneighbors[ei]
-        if (!initial_dets[od] or seed_dets_bools[od]) {
-          // This is an extant fresh or seed det
+        // if (!initial_dets[od] or seed_dets_bools[od]) {
+        //   // This is an extant fresh or seed det
           if (detcost_cache[od] == -1) {
             detcost_cache[od] = get_detcost(od, detector_cost_tuples);
           }
           next_cost -= detcost_cache[od];
           next_cost += get_detcost(od, next_detector_cost_tuples);
-        }
+        // }
       }
 
       if (next_cost == INF) continue;
