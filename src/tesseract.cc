@@ -146,7 +146,13 @@ TesseractDecoder::TesseractDecoder(TesseractConfig config_) : config(config_) {
   num_detectors = config.dem.count_detectors();
   num_errors = config.dem.count_errors();
   num_observables = config.dem.count_observables();
+  if (config.verbose) {
+    std::cout<<"about to initialize_structures"<<std::endl;
+  }
   initialize_structures(config.dem.count_detectors());
+  if (config.verbose) {
+    std::cout<<"finished initialize_structures"<<std::endl;
+  }
   if (config.create_visualization) {
     visualizer.add_detector_coords(get_detector_coords(config.dem));
     visualizer.add_errors(errors);
@@ -511,6 +517,27 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
     flip_detectors_and_block_errors(detector_order, node.errors, dets, initial_dets, seed_dets,
                                     seed_dets_bools, detector_cost_tuples);
 
+    // Incremental clustering: check for detector footprint collision.
+    // When a valid resolution is found, we check the detectors that
+    // were part of the search shell (i.e., originally on but now off).
+    // If any of these detectors are owned by another seed, we merge
+    // and signal a collision.
+    for (size_t d = 0; d < num_detectors; ++d) {
+      if (dets[d] != initial_dets[d]) {
+        size_t owner_root = det_owner[d];
+        if (owner_root == SIZE_MAX) {
+          det_owner[d] = current_root;
+          // assert(false && "unreachable");
+        } else if (find(parents, owner_root) != current_root) {
+          if (config.verbose) {
+            std::cout<<"CLUSTER: do_union("<<current_root <<", "<<owner_root<<")"<<std::endl;
+          }
+          do_union(parents, current_root, owner_root);
+          return true;  // Collision detected and merged.
+        }
+      }
+    }
+
     if (node.num_fresh_dets == 0) {
       bool resolution = true;
       for (uint64_t sd : seed_dets) {
@@ -520,33 +547,6 @@ bool TesseractDecoder::resolve_to_errors(const std::vector<uint64_t>& detections
         }
       }
       if (resolution) {
-        // Incremental clustering: check for detector footprint collision.
-        // When a valid resolution is found, we check the detectors that
-        // were part of the search shell (i.e., originally on but now off).
-        // If any of these detectors are owned by another seed, we merge
-        // and signal a collision.
-        auto this_dets = initial_dets;
-        for (size_t ei : node.errors) {
-          for (size_t d : edets[ei]) {
-            this_dets[d] ^= 1;
-          }
-        }
-        for (size_t d = 0; d < num_detectors; ++d) {
-          if (!this_dets[d] && initial_dets[d]) {
-            size_t owner_root = det_owner[d];
-            if (owner_root == SIZE_MAX) {
-              det_owner[d] = current_root;
-              assert(false && "unreachable");
-            } else if (find(parents, owner_root) != current_root) {
-              if (config.verbose) {
-                std::cout<<"CLUSTER: do_union("<<current_root <<", "<<owner_root<<")"<<std::endl;
-              }
-              do_union(parents, current_root, owner_root);
-              return true;  // Collision detected and merged.
-            }
-          }
-        }
-
         predicted_errors_buffer = node.errors;
         return false;  // Successful resolution, no collision.
       }
