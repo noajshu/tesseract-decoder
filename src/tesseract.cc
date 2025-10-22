@@ -303,11 +303,32 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   pq.push({initial_cost, min_num_dets, std::vector<size_t>()});
   size_t num_pq_pushed = 1;
 
+  std::set<size_t> committed_errors;
+  size_t ecommit_radius = 10;
   while (!pq.empty()) {
     const Node node = pq.top();
     pq.pop();
 
     if (node.num_dets > max_num_dets) continue;
+
+    std::set<size_t> node_errors(node.errors.begin(), node.errors.end());
+    bool matches = true;
+    for (size_t ei:committed_errors) {
+      if (!node_errors.count(ei)) {
+        matches=false;
+        break;
+      }
+    }
+    if (!matches) {
+      continue;
+    }
+
+    for (size_t i=0; i+ecommit_radius<node.errors.size(); ++i) {
+      if(committed_errors.insert(node.errors[i]).second) {
+        // Only insert 1 error
+        break;
+      }
+    }
 
     boost::dynamic_bitset<> detectors = initial_detectors;
     std::vector<DetectorCostTuple> detector_cost_tuples(num_errors);
