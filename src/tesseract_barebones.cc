@@ -23,7 +23,7 @@
 
 #include "common.h"
 #include "stim.h"
-#include "tesseract.h"
+#include "tesseract_barebones.h"
 #include "utils.h"
 
 struct Args {
@@ -75,7 +75,6 @@ struct Args {
   double det_penalty = 0;
   bool beam_climbing = false;
   bool no_revisit_dets = false;
-  bool add_synthetic_detectors = false;
 
   size_t pqlimit;
 
@@ -173,14 +172,7 @@ struct Args {
           /*block_decomposition_from_introducing_remnant_edges=*/false);
     }
 
-    if (!no_merge_errors) {
-      config.dem = common::merge_indistinguishable_errors(config.dem);
-    }
-    config.merge_errors = false;
-
-    if (add_synthetic_detectors) {
-      config.dem = common::add_synthetic_detectors(config.dem);
-    }
+    config.merge_errors = !no_merge_errors;
 
     // Sample orientations of the error model to use for the det priority
     {
@@ -297,7 +289,6 @@ struct Args {
     config.det_penalty = det_penalty;
     config.beam_climbing = beam_climbing;
     config.no_revisit_dets = no_revisit_dets;
-    config.add_synthetic_detectors = false;
 
     config.pqlimit = pqlimit;
     config.verbose = verbose;
@@ -454,10 +445,6 @@ int main(int argc, char* argv[]) {
       .help("Use no-revisit-dets heuristic")
       .flag()
       .store_into(args.no_revisit_dets);
-  program.add_argument("--add-synthetic-detectors")
-      .help("Add synthetic detectors to the error model")
-      .flag()
-      .store_into(args.add_synthetic_detectors);
 
   program.add_argument("--pqlimit")
       .help("Maximum size of the priority queue (default = infinity)")

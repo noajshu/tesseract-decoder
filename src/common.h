@@ -66,6 +66,11 @@ struct Error {
 // merged.
 stim::DetectorErrorModel merge_indistinguishable_errors(const stim::DetectorErrorModel& dem);
 
+// Adds a new detector for each pair of detectors in the input error model that overlap on at least one error.
+// When we add a detector we set its coordinates to be the average of the two coordinates of the detectors it is comprised of.
+// And the set of errors that are set to activate this synthetic detector should be the disjoint union of the sets of errors activating the original 2 detectors.
+stim::DetectorErrorModel add_synthetic_detectors(const stim::DetectorErrorModel& dem);
+
 // Returns a copy of the given error model with any zero-probability DEM_ERROR
 // instructions removed.
 stim::DetectorErrorModel remove_zero_probability_errors(const stim::DetectorErrorModel& dem);
@@ -74,11 +79,9 @@ stim::DetectorErrorModel remove_zero_probability_errors(const stim::DetectorErro
 // fraction of shots they were used in.
 // Throws std::invalid_argument if `orig_dem` contains zero-probability errors;
 // call remove_zero_probability_errors first.
-stim::DetectorErrorModel dem_from_counts(stim::DetectorErrorModel& orig_dem,
-                                         const std::vector<size_t>& error_counts, size_t num_shots);
-
-/// Computes the weight of an edge resulting from merging edges with weight `a' and weight `b',
-/// assuming each edge weight is a log-likelihood ratio log((1-p)/p) associated with the probability
+stim::DetectorErrorModel dem_from_counts(stim::DetectorErrorModel& orig_dem, const std::vector<size_t>& error_counts, size_t num_shots);
+                                         
+/// Computes the weight of an edge resulting from merging edges with weight `a' and weight `b',/// assuming each edge weight is a log-likelihood ratio log((1-p)/p) associated with the probability
 /// p of an error occurring on the edge, and that the error mechanisms associated with the two edges
 /// being merged are independent.
 double merge_weights(double a, double b);

@@ -43,6 +43,7 @@ struct TesseractConfig {
   std::vector<std::vector<size_t>> det_orders;
   double det_penalty = 0;
   bool create_visualization = false;
+  bool add_synthetic_detectors = false;
 
   std::string str();
 };

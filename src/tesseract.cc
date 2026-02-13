@@ -63,7 +63,8 @@ std::string TesseractConfig::str() {
   ss << "pqlimit=" << config.pqlimit << ", ";
   ss << "det_orders=" << config.det_orders << ", ";
   ss << "det_penalty=" << config.det_penalty << ", ";
-  ss << "create_visualization=" << config.create_visualization;
+  ss << "create_visualization=" << config.create_visualization << ", ";
+  ss << "add_synthetic_detectors=" << config.add_synthetic_detectors;
   ss << ")";
   return ss.str();
 }
@@ -108,6 +109,9 @@ double TesseractDecoder::get_detcost(
 TesseractDecoder::TesseractDecoder(TesseractConfig config_) : config(config_) {
   if (config.merge_errors) {
     config.dem = common::merge_indistinguishable_errors(config.dem);
+  }
+  if (config.add_synthetic_detectors) {
+    config.dem = common::add_synthetic_detectors(config.dem);
   }
   config.dem = common::remove_zero_probability_errors(config.dem);
 

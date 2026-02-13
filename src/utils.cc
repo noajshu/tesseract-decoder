@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <numeric>
 #include <queue>
 #include <random>
@@ -276,4 +277,83 @@ uint64_t vector_to_u64_mask(const std::vector<int>& v) {
     mask ^= (1ULL << i);
   }
   return mask;
+}
+
+stim::DetectorErrorModel common::add_synthetic_detectors(const stim::DetectorErrorModel& dem) {
+  stim::DetectorErrorModel out_dem;
+  size_t num_detectors = dem.count_detectors();
+  std::vector<std::vector<double>> coords = get_detector_coords(dem);
+  std::vector<std::vector<size_t>> adj = build_detector_graph(dem);
+
+  // Map edges (u, v) with u < v to new detector IDs
+  std::map<std::pair<size_t, size_t>, size_t> edge_to_id;
+  size_t next_id = num_detectors;
+
+  for (size_t u = 0; u < num_detectors; ++u) {
+    if (u < adj.size()) {
+      for (size_t v : adj[u]) {
+        if (u < v) {
+          edge_to_id[{u, v}] = next_id++;
+        }
+      }
+    }
+  }
+
+  // Process instructions
+  for (const auto& instruction : dem.flattened().instructions) {
+    if (instruction.type == stim::DemInstructionType::DEM_ERROR) {
+      std::vector<size_t> active_dets;
+      for (const auto& target : instruction.target_data) {
+        if (target.is_relative_detector_id()) {
+          active_dets.push_back(target.val());
+        }
+      }
+      std::sort(active_dets.begin(), active_dets.end());
+
+      std::vector<stim::DemTarget> new_targets;
+      for (const auto& t : instruction.target_data) {
+        new_targets.push_back(t);
+      }
+
+      // Find which synthetic detectors are triggered
+      // XOR logic: triggered if exactly one endpoint is active
+      for (size_t u : active_dets) {
+        if (u >= adj.size()) continue;
+        for (size_t v : adj[u]) {
+          // Check if v is active
+          bool v_active = std::binary_search(active_dets.begin(), active_dets.end(), v);
+          if (!v_active) {
+            // (u, v) is activated (u active, v inactive)
+            size_t p1 = std::min(u, v);
+            size_t p2 = std::max(u, v);
+            size_t new_id = edge_to_id.at({p1, p2});
+            new_targets.push_back(stim::DemTarget::relative_detector_id(new_id));
+          }
+        }
+      }
+      out_dem.append_error_instruction(instruction.arg_data[0], new_targets, instruction.tag);
+    } else {
+      out_dem.append_dem_instruction(instruction);
+    }
+  }
+
+  // Append new detector coordinates
+  for (auto const& [edge, new_id] : edge_to_id) {
+    size_t u = edge.first;
+    size_t v = edge.second;
+    std::vector<double> new_coord;
+    if (u < coords.size() && v < coords.size()) {
+      const auto& c1 = coords[u];
+      const auto& c2 = coords[v];
+      size_t dims = std::max(c1.size(), c2.size());
+      for (size_t k = 0; k < dims; ++k) {
+        double val1 = (k < c1.size()) ? c1[k] : 0.0;
+        double val2 = (k < c2.size()) ? c2[k] : 0.0;
+        new_coord.push_back((val1 + val2) / 2.0);
+      }
+    }
+    out_dem.append_detector_instruction(new_coord, stim::DemTarget::relative_detector_id(new_id), "");
+  }
+
+  return out_dem;
 }
