@@ -15,7 +15,10 @@
 #include "tesseract.h"
 
 #include <cstdlib>
+#include <iomanip>
 #include <limits>
+#include <random>
+#include <sstream>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -24,6 +27,23 @@
 #include "utils.h"
 
 constexpr uint64_t test_data_seed = 752024;
+
+namespace {
+
+double get_expected_detcost_for_detector(const TesseractDecoder& decoder, size_t detector,
+                                         const std::vector<DetectorCostTuple>& tuples) {
+  double min_ratio = std::numeric_limits<double>::infinity();
+  for (int ei : decoder.d2e[detector]) {
+    if (tuples[ei].error_blocked || tuples[ei].detectors_count == 0) {
+      continue;
+    }
+    min_ratio =
+        std::min(min_ratio, decoder.error_costs[ei].likelihood_cost / tuples[ei].detectors_count);
+  }
+  return min_ratio + decoder.config.det_penalty;
+}
+
+}  // namespace
 
 bool simplex_test_compare(stim::DetectorErrorModel& dem, std::vector<stim::SparseShot>& shots) {
   TesseractConfig tesseract_config{dem};
@@ -417,4 +437,72 @@ TEST(TesseractDetcostTest, ComparesRatiosNotRawCosts) {
   double expected = 5.230557212477344 / 2.0;  // from D0 D1 D3
 
   EXPECT_NEAR(got, expected, 1e-12);
+}
+
+TEST(TesseractDetcostTest, RandomizedRegressionAgainstDirectMinimumComputation) {
+  std::mt19937_64 rng(0x5eed1234ULL);
+  std::uniform_real_distribution<double> probability_dist(0.001, 0.2);
+  std::bernoulli_distribution active_detector_dist(0.45);
+  std::bernoulli_distribution blocked_dist(0.35);
+
+  constexpr size_t kDemSamples = 50;
+  constexpr size_t kIterationsPerDem = 100;
+  for (size_t dem_sample = 0; dem_sample < kDemSamples; ++dem_sample) {
+    std::stringstream dem_text;
+    dem_text << std::setprecision(17)
+             << "error(" << probability_dist(rng) << ") D0 D1 D2\n"
+             << "error(" << probability_dist(rng) << ") D0 D3\n"
+             << "error(" << probability_dist(rng) << ") D1 D3 D4\n"
+             << "error(" << probability_dist(rng) << ") D2 D4\n"
+             << "error(" << probability_dist(rng) << ") D0 D4\n"
+             << "error(" << probability_dist(rng) << ") D1 D2\n"
+             << "error(" << probability_dist(rng) << ") D2 D3 D4\n";
+
+    TesseractConfig cfg;
+    cfg.dem = stim::DetectorErrorModel(dem_text.str());
+    cfg.merge_errors = false;
+    cfg.det_penalty = 0.25;
+    TesseractDecoder dec(cfg);
+
+    for (size_t iter = 0; iter < kIterationsPerDem; ++iter) {
+      std::vector<DetectorCostTuple> tuples(dec.errors.size());
+      std::vector<bool> active_detectors(dec.num_detectors, false);
+
+      // Build detector_count values exactly the same way decode does: counts of
+      // active detectors incident to each error.
+      for (size_t d = 0; d < dec.num_detectors; ++d) {
+        active_detectors[d] = active_detector_dist(rng);
+        if (!active_detectors[d]) {
+          continue;
+        }
+        for (int ei : dec.d2e[d]) {
+          tuples[ei].detectors_count++;
+        }
+      }
+      for (size_t ei = 0; ei < dec.errors.size(); ++ei) {
+        tuples[ei].error_blocked = blocked_dist(rng) ? 1 : 0;
+      }
+
+      // Keep every detector decodable in this test by forcing one adjacent
+      // error to be unblocked whenever that detector is active.
+      for (size_t d = 0; d < dec.num_detectors; ++d) {
+        if (!active_detectors[d]) {
+          continue;
+        }
+        ASSERT_FALSE(dec.d2e[d].empty());
+        int supporting_ei = dec.d2e[d][iter % dec.d2e[d].size()];
+        tuples[supporting_ei].error_blocked = 0;
+      }
+
+      for (size_t d = 0; d < dec.num_detectors; ++d) {
+        if (!active_detectors[d]) {
+          continue;
+        }
+        double got = dec.get_detcost(d, tuples);
+        double expected = get_expected_detcost_for_detector(dec, d, tuples);
+        EXPECT_NEAR(got, expected, 1e-12)
+            << "dem_sample=" << dem_sample << " iter=" << iter << " detector=" << d;
+      }
+    }
+  }
 }
