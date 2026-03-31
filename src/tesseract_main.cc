@@ -81,6 +81,7 @@ struct Args {
 
   bool verbose = false;
   bool print_stats = false;
+  bool print_extra_stats = false;
 
   bool has_observables() {
     return append_observables || !obs_in_fname.empty() || (sample_num_shots > 0);
@@ -467,6 +468,10 @@ int main(int argc, char* argv[]) {
           "during decoding.")
       .flag()
       .store_into(args.print_stats);
+  program.add_argument("--print-extra-stats")
+      .help("Prints out extra statistics during decoding (num_pq_pushed, num_pq_popped).")
+      .flag()
+      .store_into(args.print_extra_stats);
 
   try {
     program.parse_args(argc, argv);
@@ -483,6 +488,8 @@ int main(int argc, char* argv[]) {
   std::vector<uint64_t> obs_predicted(shots.size());
   std::vector<double> cost_predicted(shots.size());
   std::vector<double> decoding_time_seconds(shots.size());
+  std::vector<size_t> num_pq_pushed(shots.size());
+  std::vector<size_t> num_pq_popped(shots.size());
   std::vector<std::atomic<bool>> low_confidence(shots.size());
   const stim::DetectorErrorModel original_dem = config.dem.flattened();
   std::vector<std::unique_ptr<TesseractDecoder>> decoders(args.num_threads);
@@ -507,6 +514,8 @@ int main(int argc, char* argv[]) {
         decoding_time_seconds[shot_index] =
             std::chrono::duration_cast<std::chrono::microseconds>(stop_time - start_time).count() /
             1e6;
+        num_pq_pushed[shot_index] = decoder.num_pq_pushed;
+        num_pq_popped[shot_index] = decoder.num_pq_popped;
         obs_predicted[shot_index] =
             vector_to_u64_mask(decoder.get_flipped_observables(decoder.predicted_errors_buffer));
         low_confidence[shot_index] = decoder.low_confidence_flag;
@@ -528,12 +537,16 @@ int main(int argc, char* argv[]) {
           ++num_errors;
         }
         total_time_seconds += decoding_time_seconds[shot_index];
-        if (args.print_stats) {
+        if (args.print_stats || args.print_extra_stats) {
           std::cout << "num_shots = " << (shot_index + 1)
                     << " num_low_confidence = " << num_low_confidence
                     << " num_errors = " << num_errors
                     << " total_time_seconds = " << total_time_seconds << std::endl;
           std::cout << "cost = " << cost_predicted[shot_index] << std::endl;
+          if (args.print_extra_stats) {
+            std::cout << "num_pq_pushed = " << num_pq_pushed[shot_index]
+                      << " num_pq_popped = " << num_pq_popped[shot_index] << std::endl;
+          }
           std::cout.flush();
         }
         return num_errors < args.max_errors;
@@ -563,6 +576,9 @@ int main(int argc, char* argv[]) {
   }
 
   bool print_final_stats = true;
+  size_t total_pq_pushed = std::accumulate(num_pq_pushed.begin(), num_pq_pushed.end(), 0UL);
+  size_t total_pq_popped = std::accumulate(num_pq_popped.begin(), num_pq_popped.end(), 0UL);
+
   if (!args.stats_out_fname.empty()) {
     nlohmann::json stats_json = {{"circuit_path", args.circuit_path},
                                  {"dem_path", args.dem_path},
@@ -577,6 +593,8 @@ int main(int argc, char* argv[]) {
                                  {"num_det_orders", args.num_det_orders},
                                  {"det_order_seed", args.det_order_seed},
                                  {"total_time_seconds", total_time_seconds},
+                                 {"total_pq_pushed", total_pq_pushed},
+                                 {"total_pq_popped", total_pq_popped},
                                  {"num_errors", num_errors},
                                  {"num_low_confidence", num_low_confidence},
                                  {"num_shots", shot},
@@ -598,6 +616,10 @@ int main(int argc, char* argv[]) {
       std::cout << " num_errors = " << num_errors;
     }
     std::cout << " total_time_seconds = " << total_time_seconds;
+    if (args.print_extra_stats) {
+      std::cout << " total_pq_pushed = " << total_pq_pushed;
+      std::cout << " total_pq_popped = " << total_pq_popped;
+    }
     std::cout << std::endl;
   }
 }

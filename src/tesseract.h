@@ -115,6 +115,9 @@ struct TesseractDecoder {
   std::vector<ErrorCost> error_costs;
   std::vector<common::ErrorChainNode> error_chain_arena;
 
+  size_t num_pq_pushed = 0;
+  size_t num_pq_popped = 0;
+
   void initialize_structures(size_t num_detectors);
   double get_detcost(size_t d, const std::vector<DetectorCostTuple>& detector_cost_tuples) const;
   void flip_detectors_and_block_errors(size_t detector_order, int64_t error_chain_idx,

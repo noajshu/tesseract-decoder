@@ -95,7 +95,9 @@ double TesseractDecoder::get_detcost(
 
   for (int ei : d2e[d]) {
     ec = error_costs[ei];
-    if (ec.likelihood_cost * min_det_cost_det_count >= min_cost * errors[ei].symptom.detectors.size()) break;
+    if (ec.likelihood_cost * min_det_cost_det_count >=
+        min_cost * errors[ei].symptom.detectors.size())
+      break;
 
     dct = detector_cost_tuples[ei];
     if (!dct.error_blocked) {
@@ -210,6 +212,8 @@ void TesseractDecoder::initialize_structures(size_t num_detectors) {
 }
 
 void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections) {
+  num_pq_pushed = 0;
+  num_pq_popped = 0;
   std::vector<size_t> best_errors;
   double best_cost = std::numeric_limits<double>::max();
   if (config.det_orders.empty()) {
@@ -286,7 +290,7 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   error_chain_arena.clear();
   // Can technically be larger than pqlimit, but we need an initial guess on how many nodes we
   // will process from the queue.
-  error_chain_arena.reserve(config.pqlimit);
+  error_chain_arena.reserve(std::min(config.pqlimit, (size_t)1000000));
 
   std::priority_queue<Node, std::vector<Node>, std::greater<Node>> pq;
   std::unordered_map<size_t, std::unordered_set<boost::dynamic_bitset<>>> visited_detectors;
@@ -323,11 +327,13 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
   std::vector<DetectorCostTuple> next_detector_cost_tuples;
 
   pq.push({initial_cost, min_num_dets, 0, -1});
-  size_t num_pq_pushed = 1;
+  size_t trial_pq_pushed = 1;
+  num_pq_pushed += 1;
 
   while (!pq.empty()) {
     const Node node = pq.top();
     pq.pop();
+    ++num_pq_popped;
 
     if (node.num_dets > max_num_dets) continue;
 
@@ -493,8 +499,9 @@ void TesseractDecoder::decode_to_errors(const std::vector<uint64_t>& detections,
 
       pq.push({next_cost, next_num_dets, node.depth + 1, (int64_t)(error_chain_arena.size() - 1)});
       ++num_pq_pushed;
+      ++trial_pq_pushed;
 
-      if (num_pq_pushed > config.pqlimit) {
+      if (trial_pq_pushed > config.pqlimit) {
         if (config.verbose) {
           std::cout << "setting low confidence flag" << std::endl;
         }
