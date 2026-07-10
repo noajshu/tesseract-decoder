@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 100 100" font-family="sans-serif" font-size="10" text-anchor="middle">
+  <defs>
+    <style>.edge{stroke:#5f6368;stroke-width:2;fill:none}</style>
+  </defs>
+  <!-- outer cube -->
+  <rect x="25" y="25" width="50" height="50" class="edge"/>
+  <!-- rotated inner cube -->
+  <polygon points="30.8,41.0 59.0,30.8 69.2,59.0 41.0,69.2" class="edge"/>
+  <!-- connecting edges -->
+  <line x1="25" y1="25" x2="30.8" y2="41.0" class="edge"/>
+  <line x1="75" y1="25" x2="59.0" y2="30.8" class="edge"/>
+  <line x1="75" y1="75" x2="69.2" y2="59.0" class="edge"/>
+  <line x1="25" y1="75" x2="41.0" y2="69.2" class="edge"/>
+  <text x="50" y="95" fill="#5f6368">Tesseract</text>
+</svg>
