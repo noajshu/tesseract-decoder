@@ -110,6 +110,30 @@ std::vector<stim::DemTarget> common::Symptom::as_dem_instruction_targets() const
 }
 
 double common::merge_weights(double a, double b) {
+  if (std::isnan(a) || std::isnan(b)) {
+    throw std::invalid_argument("Cannot merge a NaN likelihood cost.");
+  }
+  if (std::isinf(a) || std::isinf(b)) {
+    const auto probability_from_cost = [](double cost) {
+      if (cost == std::numeric_limits<double>::infinity()) return 0.0;
+      if (cost == -std::numeric_limits<double>::infinity()) return 1.0;
+      if (cost >= 0.0) {
+        const double exp_negative_cost = std::exp(-cost);
+        return exp_negative_cost / (1.0 + exp_negative_cost);
+      }
+      return 1.0 / (1.0 + std::exp(cost));
+    };
+    const double p_a = probability_from_cost(a);
+    const double p_b = probability_from_cost(b);
+    const double merged_probability = p_a * (1.0 - p_b) + p_b * (1.0 - p_a);
+    if (merged_probability == 0.0) {
+      return std::numeric_limits<double>::infinity();
+    }
+    if (merged_probability == 1.0) {
+      return -std::numeric_limits<double>::infinity();
+    }
+    return std::log1p(-merged_probability) - std::log(merged_probability);
+  }
   auto sgn = std::copysign(1, a) * std::copysign(1, b);
   auto signed_min = sgn * std::min(std::abs(a), std::abs(b));
   return signed_min + std::log(1 + std::exp(-std::abs(a + b))) -

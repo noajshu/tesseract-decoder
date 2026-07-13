@@ -14,6 +14,8 @@
 
 #include "common.h"
 
+#include <tuple>
+
 #include "gtest/gtest.h"
 #include "stim.h"
 
@@ -193,4 +195,20 @@ TEST(CommonTest, merge_indistinguishable_errors_two_errors) {
   auto dem4 = create_dem_with_two_errors(p1, p2);
   auto merged_dem4 = common::merge_indistinguishable_errors(dem4, error_index_map);
   ASSERT_NEAR(get_merged_probability(merged_dem4), expected_merged_p, 1e-9);
+}
+
+TEST(CommonTest, merge_indistinguishable_errors_endpoint_probabilities) {
+  std::vector<size_t> error_index_map;
+  for (const auto& [p1, p2, expected] : std::vector<std::tuple<double, double, double>>{
+           {0.0, 0.0, 0.0},
+           {1.0, 1.0, 0.0},
+           {0.0, 1.0, 1.0},
+           {1.0, 0.0, 1.0},
+           {0.0, 0.2, 0.2},
+           {1.0, 0.2, 0.8},
+       }) {
+    auto dem = create_dem_with_two_errors(p1, p2);
+    auto merged = common::merge_indistinguishable_errors(dem, error_index_map);
+    ASSERT_NEAR(get_merged_probability(merged), expected, 1e-15);
+  }
 }
