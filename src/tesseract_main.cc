@@ -613,9 +613,10 @@ int main(int argc, char* argv[]) {
     }
   }
 
+  size_t num_usage_dem_shots = 0;
   if (!args.dem_out_fname.empty()) {
     std::vector<size_t> counts(error_use_totals.begin(), error_use_totals.end());
-    size_t num_usage_dem_shots = shot;
+    num_usage_dem_shots = shot;
     if (has_obs) {
       // When we know the obs, we only count non-error shots.
       num_usage_dem_shots -= num_errors;
@@ -664,6 +665,9 @@ int main(int argc, char* argv[]) {
         {"num_errors", num_errors},
         {"num_low_confidence", num_low_confidence},
         {"num_shots", shot},
+        {"dem_out_num_shots", num_usage_dem_shots},
+        {"dem_out_observables_supplied", has_obs},
+        {"dem_out_excluded_logical_error_shots", has_obs ? num_errors : 0},
         {"num_threads", args.num_threads},
         {"sample_num_shots", args.sample_num_shots},
         {"sparsify_errors", args.sparsify_errors},

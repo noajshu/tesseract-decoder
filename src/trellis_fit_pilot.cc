@@ -526,6 +526,198 @@ void write_scores(const std::string& path, const std::vector<SyndromeCounts>& ro
   }
 }
 
+std::vector<SyndromeCounts> rows_for_population(const std::vector<SyndromeCounts>& rows,
+                                                bool test) {
+  std::vector<SyndromeCounts> active;
+  active.reserve(rows.size());
+  for (const auto& row : rows) {
+    const uint64_t zeros = test ? row.test_zero_count : row.train_zero_count;
+    const uint64_t ones = test ? row.test_one_count : row.train_one_count;
+    if (zeros != 0 || ones != 0) {
+      active.push_back(row);
+    }
+  }
+  if (active.empty()) {
+    throw std::invalid_argument("requested population contains no shots");
+  }
+  return active;
+}
+
+void write_partial_summary(const std::string& path, const std::string& mode,
+                           const std::string& objective, const std::string& population,
+                           size_t beam_width, size_t num_threads, size_t num_errors,
+                           size_t input_rows, size_t active_rows, uint64_t shots, double data_nll,
+                           double elapsed_seconds, const std::string& ranking_mode,
+                           double future_detcost_scale, const std::vector<double>* gradient,
+                           const std::vector<SyndromeCounts>* value_rows = nullptr,
+                           const std::vector<double>* values = nullptr) {
+  const std::string temporary_path = path + ".tmp";
+  std::ofstream output(temporary_path);
+  if (!output) {
+    throw std::invalid_argument("could not write partial summary: " + temporary_path);
+  }
+  output << std::setprecision(17);
+  output << "{\n"
+         << "  \"schema_version\": 1,\n"
+         << "  \"mode\": \"" << mode << "\",\n"
+         << "  \"objective\": \"" << objective << "\",\n"
+         << "  \"population\": \"" << population << "\",\n"
+         << "  \"beam_width\": " << beam_width << ",\n"
+         << "  \"threads\": " << num_threads << ",\n"
+         << "  \"model_errors\": " << num_errors << ",\n"
+         << "  \"input_rows\": " << input_rows << ",\n"
+         << "  \"active_rows\": " << active_rows << ",\n"
+         << "  \"shots\": " << shots << ",\n"
+         << "  \"data_nll\": " << data_nll << ",\n"
+         << "  \"elapsed_seconds\": " << elapsed_seconds << ",\n"
+         << "  \"ranking_mode\": \"" << ranking_mode << "\",\n"
+         << "  \"future_detcost_scale\": " << future_detcost_scale << ",\n"
+         << "  \"gradient\": ";
+  if (gradient == nullptr) {
+    output << "null,\n";
+  } else {
+    output << '[';
+    for (size_t i = 0; i < gradient->size(); ++i) {
+      if (i != 0) {
+        output << ',';
+      }
+      output << (*gradient)[i];
+    }
+    output << "],\n";
+  }
+  output << "  \"syndromes\": ";
+  if (value_rows == nullptr || values == nullptr) {
+    output << "null,\n"
+           << "  \"zero_counts\": null,\n"
+           << "  \"one_counts\": null,\n"
+           << "  \"values\": null\n";
+  } else {
+    if (value_rows->size() != values->size()) {
+      throw std::invalid_argument("partial value rows and values have different sizes");
+    }
+    output << '[';
+    for (size_t i = 0; i < value_rows->size(); ++i) {
+      if (i != 0) {
+        output << ',';
+      }
+      output << '\"' << (*value_rows)[i].syndrome << '\"';
+    }
+    output << "],\n  \"zero_counts\": [";
+    for (size_t i = 0; i < value_rows->size(); ++i) {
+      if (i != 0) {
+        output << ',';
+      }
+      const auto& row = (*value_rows)[i];
+      output << (population == "test" ? row.test_zero_count : row.train_zero_count);
+    }
+    output << "],\n  \"one_counts\": [";
+    for (size_t i = 0; i < value_rows->size(); ++i) {
+      if (i != 0) {
+        output << ',';
+      }
+      const auto& row = (*value_rows)[i];
+      output << (population == "test" ? row.test_one_count : row.train_one_count);
+    }
+    output << "],\n  \"values\": [";
+    for (size_t i = 0; i < values->size(); ++i) {
+      if (i != 0) {
+        output << ',';
+      }
+      output << (*values)[i];
+    }
+    output << "]\n";
+  }
+  output << "}\n";
+  output.flush();
+  if (!output) {
+    std::remove(temporary_path.c_str());
+    throw std::runtime_error("failed while writing partial summary: " + temporary_path);
+  }
+  output.close();
+  if (std::rename(temporary_path.c_str(), path.c_str()) != 0) {
+    std::remove(temporary_path.c_str());
+    throw std::runtime_error("could not atomically publish partial summary: " + path);
+  }
+}
+
+void run_partial(int argc, char** argv) {
+  if (argc != 12) {
+    throw std::invalid_argument(
+        "usage: trellis_fit_pilot partial DEM COUNTS OUT_JSON BEAM THREADS "
+        "[gradient|score|predict] [observable|syndrome] [train|test] RANKING_MODE "
+        "FUTURE_DETCOST_SCALE");
+  }
+  const std::string dem_path = argv[2];
+  const std::string counts_path = argv[3];
+  const std::string output_path = argv[4];
+  const size_t beam_width = parse_uint64_strict(argv[5], "BEAM");
+  const size_t num_threads = parse_uint64_strict(argv[6], "THREADS");
+  const std::string mode = argv[7];
+  const std::string objective_name = argv[8];
+  const std::string population = argv[9];
+  const std::string ranking_mode_name = argv[10];
+  const double future_detcost_scale =
+      parse_double_strict(argv[11], "FUTURE_DETCOST_SCALE");
+  if (mode != "gradient" && mode != "score" && mode != "predict") {
+    throw std::invalid_argument("partial mode must be gradient, score, or predict");
+  }
+  const FitObjective objective =
+      objective_name == "observable"
+          ? FitObjective::Observable
+          : objective_name == "syndrome"
+                ? FitObjective::Syndrome
+                : throw std::invalid_argument(
+                      "distributed partial objective must be observable or syndrome");
+  if (population != "train" && population != "test") {
+    throw std::invalid_argument("partial population must be train or test");
+  }
+  if (mode == "gradient" && population != "train") {
+    throw std::invalid_argument("partial gradients are defined for the training population");
+  }
+  if (mode == "predict" && objective != FitObjective::Observable) {
+    throw std::invalid_argument("partial prediction requires the observable objective");
+  }
+  if (beam_width == 0 || num_threads == 0 || !std::isfinite(future_detcost_scale) ||
+      future_detcost_scale < 0.0) {
+    throw std::invalid_argument("invalid partial fit parameter");
+  }
+
+  const auto ranking_mode = parse_ranking_mode(ranking_mode_name);
+  const auto rows = read_counts(counts_path);
+  const stim::DetectorErrorModel dem = dem_with_probability_floor(read_dem(dem_path));
+  if (dem.count_observables() != 1 || dem.count_errors() == 0) {
+    throw std::invalid_argument(
+        "partial fitter requires a DEM with errors and exactly one observable");
+  }
+  validate_detections_against_dem(rows, dem);
+  const bool test = population == "test";
+  const auto active = rows_for_population(rows, test);
+
+  if (mode == "gradient") {
+    const auto result = objective_and_gradient(dem, active, beam_width, num_threads, objective, 0,
+                                               ranking_mode, future_detcost_scale);
+    write_partial_summary(output_path, mode, objective_name, population, beam_width, num_threads,
+                          dem.count_errors(), rows.size(), active.size(), result.shots,
+                          result.data_nll, result.elapsed_seconds, ranking_mode_name,
+                          future_detcost_scale, &result.gradient);
+    return;
+  }
+
+  const auto started = std::chrono::steady_clock::now();
+  const auto values = decode_values(dem, active, beam_width, num_threads, objective, ranking_mode,
+                                    future_detcost_scale);
+  const double data_nll = nll_from_values(values, active, test, objective, 0);
+  const auto totals = validate_detections_against_dem(active, dem);
+  const uint64_t shots = test ? totals.test : totals.train;
+  const double elapsed_seconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+  write_partial_summary(output_path, mode, objective_name, population, beam_width, num_threads,
+                        dem.count_errors(), rows.size(), active.size(), shots, data_nll,
+                        elapsed_seconds, ranking_mode_name, future_detcost_scale, nullptr,
+                        mode == "predict" ? &active : nullptr,
+                        mode == "predict" ? &values : nullptr);
+}
+
 void write_summary(const std::string& path, size_t beam_width, size_t num_threads,
                    size_t num_errors, size_t num_syndromes, uint64_t train_shots,
                    uint64_t test_shots, size_t requested_steps, size_t optimizer_updates,
@@ -587,6 +779,15 @@ void write_summary(const std::string& path, size_t beam_width, size_t num_thread
 }  // namespace
 
 int main(int argc, char** argv) {
+  if (argc >= 2 && std::string(argv[1]) == "partial") {
+    try {
+      run_partial(argc, argv);
+    } catch (const std::exception& ex) {
+      std::cerr << "trellis partial fit failed: " << ex.what() << '\n';
+      return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
+  }
   if (argc != 12 && argc != 13 && argc != 15 && argc != 17) {
     std::cerr << "usage: trellis_fit_pilot DEM COUNTS OUT_DEM OUT_SCORES OUT_SUMMARY BEAM "
                  "THREADS STEPS LEARNING_RATE L2 MAX_SHIFT "
