@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -8,6 +9,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -100,6 +102,65 @@ double parse_double_strict(const std::string& token, const std::string& context)
     throw std::invalid_argument("invalid floating-point value " + token + " in " + context);
   }
 }
+
+class ProgressReporter {
+ public:
+  explicit ProgressReporter(size_t total) : total_(total) {
+    const char* interval = std::getenv("TESSERACT_PROGRESS_INTERVAL_MS");
+    if (interval == nullptr || interval[0] == '\0') {
+      return;
+    }
+    interval_ms_ = parse_uint64_strict(interval, "TESSERACT_PROGRESS_INTERVAL_MS");
+    if (interval_ms_ == 0) {
+      throw std::invalid_argument("TESSERACT_PROGRESS_INTERVAL_MS must be positive");
+    }
+    next_report_ns_.store(now_ns() + interval_ms_ * 1000000ULL);
+    emit(0);
+  }
+
+  void advance() {
+    const size_t completed = completed_.fetch_add(1) + 1;
+    if (interval_ms_ == 0 || completed == total_) {
+      return;
+    }
+    const uint64_t now = now_ns();
+    uint64_t next = next_report_ns_.load();
+    if (now < next ||
+        !next_report_ns_.compare_exchange_strong(next, now + interval_ms_ * 1000000ULL)) {
+      return;
+    }
+    emit(completed_.load());
+  }
+
+  void finish() {
+    if (interval_ms_ != 0) {
+      emit(total_);
+    }
+  }
+
+ private:
+  static uint64_t now_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+  }
+
+  void emit(size_t completed) {
+    std::lock_guard<std::mutex> lock(output_mutex_);
+    if (completed <= last_reported_ && completed != 0) {
+      return;
+    }
+    last_reported_ = completed;
+    std::cerr << "TRELLIS_PROGRESS " << completed << ' ' << total_ << '\n' << std::flush;
+  }
+
+  const size_t total_;
+  uint64_t interval_ms_ = 0;
+  std::atomic<size_t> completed_{0};
+  std::atomic<uint64_t> next_report_ns_{0};
+  std::mutex output_mutex_;
+  size_t last_reported_ = 0;
+};
 
 stim::DetectorErrorModel read_dem(const std::string& path) {
   FILE* file = fopen(path.c_str(), "r");
@@ -303,6 +364,7 @@ ObjectiveResult objective_and_gradient(const stim::DetectorErrorModel& dem,
   std::vector<std::exception_ptr> errors(num_threads);
   std::vector<std::thread> workers;
   workers.reserve(num_threads);
+  ProgressReporter progress(rows.size());
 
   for (size_t thread_index = 0; thread_index < num_threads; ++thread_index) {
     workers.emplace_back([&, thread_index]() {
@@ -319,6 +381,7 @@ ObjectiveResult objective_and_gradient(const stim::DetectorErrorModel& dem,
           const auto& row = rows[row_index];
           const uint64_t row_shots = row.train_zero_count + row.train_one_count;
           if (row_shots == 0 && fit_objective != FitObjective::SyndromeCensored) {
+            progress.advance();
             continue;
           }
           if (fit_objective == FitObjective::Observable) {
@@ -358,6 +421,7 @@ ObjectiveResult objective_and_gradient(const stim::DetectorErrorModel& dem,
             }
           }
           partial_shots[thread_index] += row_shots;
+          progress.advance();
         }
       } catch (...) {
         errors[thread_index] = std::current_exception();
@@ -372,6 +436,7 @@ ObjectiveResult objective_and_gradient(const stim::DetectorErrorModel& dem,
       std::rethrow_exception(error);
     }
   }
+  progress.finish();
 
   ObjectiveResult result{0.0, std::vector<double>(num_errors, 0.0), 0, 0.0};
   long double total_loss = 0.0;
@@ -425,6 +490,7 @@ std::vector<double> decode_values(const stim::DetectorErrorModel& dem,
   std::vector<std::exception_ptr> errors(num_threads);
   std::vector<std::thread> workers;
   workers.reserve(num_threads);
+  ProgressReporter progress(rows.size());
   for (size_t thread_index = 0; thread_index < num_threads; ++thread_index) {
     workers.emplace_back([&, thread_index]() {
       try {
@@ -446,6 +512,7 @@ std::vector<double> decode_values(const stim::DetectorErrorModel& dem,
               (fit_objective != FitObjective::Observable && values[row_index] > 0.0)) {
             throw std::runtime_error("invalid trellis value while scoring");
           }
+          progress.advance();
         }
       } catch (...) {
         errors[thread_index] = std::current_exception();
@@ -460,6 +527,7 @@ std::vector<double> decode_values(const stim::DetectorErrorModel& dem,
       std::rethrow_exception(error);
     }
   }
+  progress.finish();
   return values;
 }
 

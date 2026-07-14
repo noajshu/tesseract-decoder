@@ -195,6 +195,12 @@ cc_binary(
     deps = [":libtesseract_trellis"],
 )
 
+sh_test(
+    name = "trellis_fit_pilot_progress_test",
+    srcs = ["trellis_fit_pilot_progress_test.sh"],
+    data = [":trellis_fit_pilot"],
+)
+
 cc_test(
     name = "tesseract_tests",
     timeout = "eternal",
