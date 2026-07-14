@@ -684,7 +684,12 @@ void run_partial(int argc, char** argv) {
 
   const auto ranking_mode = parse_ranking_mode(ranking_mode_name);
   const auto rows = read_counts(counts_path);
-  const stim::DetectorErrorModel dem = dem_with_probability_floor(read_dem(dem_path));
+  const stim::DetectorErrorModel dem = read_dem(dem_path);
+  // Distributed controllers have already constructed the effective starting
+  // model. Validate its topology and strict probabilities without reapplying
+  // the initialization floor to later optimizer candidates.
+  (void)dem_with_probability_floor(dem);
+  (void)error_logits(dem);
   if (dem.count_observables() != 1 || dem.count_errors() == 0) {
     throw std::invalid_argument(
         "partial fitter requires a DEM with errors and exactly one observable");
