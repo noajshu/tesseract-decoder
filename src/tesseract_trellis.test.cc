@@ -192,6 +192,51 @@ TEST(TesseractTrellisDecoderTest, CapturesNormalizedIntermediateBeam) {
   ASSERT_EQ(decoder.beam_snapshots.size(), 1);
 }
 
+TEST(TesseractTrellisDecoderTest, RestartedSegmentMatchesUninterruptedDecode) {
+  stim::DetectorErrorModel dem(R"DEM(
+    error(0.1) D0 D1 L0
+    error(0.2) D0 D2
+    error(0.3) D1 D2
+    detector(0, 0, 0) D0
+    detector(1, 0, 0) D1
+    detector(2, 0, 0) D2
+  )DEM");
+
+  TesseractTrellisConfig config;
+  config.dem = dem;
+  config.beam_width = 16;
+  config.snapshot_layer_indices = {0};
+  TesseractTrellisDecoder uninterrupted(config);
+  uninterrupted.decode_shot({});
+  ASSERT_FALSE(uninterrupted.low_confidence_flag);
+  ASSERT_EQ(uninterrupted.beam_snapshots.size(), 1);
+
+  TesseractTrellisDecoder restarted(config);
+  restarted.decode_shot_segment({}, &uninterrupted.beam_snapshots[0], 1, SIZE_MAX);
+  ASSERT_FALSE(restarted.low_confidence_flag);
+  EXPECT_EQ(restarted.predicted_obs_mask, uninterrupted.predicted_obs_mask);
+  EXPECT_NEAR(restarted.observable_probability(), uninterrupted.observable_probability(), 1e-12);
+}
+
+TEST(TesseractTrellisDecoderTest, RejectsRestartAtWrongBoundary) {
+  stim::DetectorErrorModel dem(R"DEM(
+    error(0.1) D0 D1 L0
+    error(0.2) D0 D2
+    detector(0, 0, 0) D0
+    detector(1, 0, 0) D1
+    detector(2, 0, 0) D2
+  )DEM");
+
+  TesseractTrellisConfig config;
+  config.dem = dem;
+  TesseractTrellisDecoder decoder(config);
+  TesseractTrellisBeamSnapshot invalid;
+  invalid.layer_index = 99;
+  invalid.active_detectors = {0};
+  invalid.entries.push_back({{0}, 1.0, 0.0});
+  EXPECT_THROW(decoder.decode_shot_segment({}, &invalid, 1, SIZE_MAX), std::invalid_argument);
+}
+
 TEST(TesseractTrellisDecoderTest, MergeErrorsMatchesOtherDecoders) {
   stim::DetectorErrorModel dem(R"DEM(
     error(0.1) D0 L0

@@ -36,7 +36,9 @@
 struct TesseractTrellisWideKernelBase {
   virtual ~TesseractTrellisWideKernelBase() = default;
   virtual void decode_shot(TesseractTrellisDecoder* decoder,
-                           const std::vector<uint64_t>& detections) const = 0;
+                           const std::vector<uint64_t>& detections,
+                           const TesseractTrellisBeamSnapshot* initial_beam, size_t start_layer,
+                           size_t stop_layer) const = 0;
 };
 
 namespace {
@@ -1003,10 +1005,9 @@ struct CompiledWideKernel final : TesseractTrellisWideKernelBase {
         initial_detector_costs(std::move(initial_detector_costs_)),
         max_frontier_width(max_frontier_width_) {}
 
-  void maybe_capture_snapshot(
-      TesseractTrellisDecoder* decoder, size_t layer_index,
-      const CompiledWideLayerTemplate<Words>& layer,
-      const std::vector<FixedWideStateEntry<Words>>& beam_entries) const {
+  void maybe_capture_snapshot(TesseractTrellisDecoder* decoder, size_t layer_index,
+                              const CompiledWideLayerTemplate<Words>& layer,
+                              const std::vector<FixedWideStateEntry<Words>>& beam_entries) const {
     const auto& requested = decoder->config.snapshot_layer_indices;
     if (requested.empty() ||
         std::find(requested.begin(), requested.end(), layer_index) == requested.end()) {
@@ -1028,8 +1029,24 @@ struct CompiledWideKernel final : TesseractTrellisWideKernelBase {
     decoder->beam_snapshots.push_back(std::move(snapshot));
   }
 
-  void decode_shot(TesseractTrellisDecoder* decoder,
-                   const std::vector<uint64_t>& detections) const override {
+  void decode_shot(TesseractTrellisDecoder* decoder, const std::vector<uint64_t>& detections,
+                   const TesseractTrellisBeamSnapshot* initial_beam, size_t start_layer,
+                   size_t stop_layer) const override {
+    if (stop_layer == SIZE_MAX) {
+      stop_layer = layers.size();
+    }
+    if (start_layer >= stop_layer || stop_layer > layers.size()) {
+      throw std::invalid_argument("Invalid trellis segment layer range.");
+    }
+    if ((start_layer == 0) != (initial_beam == nullptr)) {
+      throw std::invalid_argument(
+          "A trellis segment needs an initial beam exactly when its start layer is nonzero.");
+    }
+    if (initial_beam != nullptr &&
+        decoder->config.ranking_mode != TesseractTrellisRankingMode::MassOnly) {
+      throw std::invalid_argument("Trellis beam restart currently supports mass ranking only.");
+    }
+
     auto& actual_detector_words = decoder->actual_detector_words_scratch;
     std::fill(actual_detector_words.begin(), actual_detector_words.end(), 0);
     for (uint64_t d : detections) {
@@ -1061,12 +1078,55 @@ struct CompiledWideKernel final : TesseractTrellisWideKernelBase {
     std::vector<size_t> used_bucket_indices;
     beam_entries.reserve(decoder->config.beam_width * 2 + 2);
     next_entries.reserve(decoder->config.beam_width * 4 + 4);
-    beam_entries.push_back({{}, 1.0, 0.0, initial_penalty});
-    decoder->max_beam_size_seen = 1;
+    if (initial_beam == nullptr) {
+      beam_entries.push_back({{}, 1.0, 0.0, initial_penalty});
+    } else {
+      const auto& expected_detectors = layers[start_layer - 1].next_active_detectors;
+      if (initial_beam->layer_index != start_layer - 1 ||
+          initial_beam->active_detectors != expected_detectors) {
+        throw std::invalid_argument("Initial trellis beam does not match the segment boundary.");
+      }
+      const size_t expected_words = num_state_words(expected_detectors.size());
+      if (initial_beam->entries.empty()) {
+        throw std::invalid_argument("Initial trellis beam is empty.");
+      }
+      beam_entries.reserve(std::max(beam_entries.capacity(), initial_beam->entries.size()));
+      double total_mass = 0.0;
+      for (const auto& input : initial_beam->entries) {
+        if (input.state_words.size() != expected_words || !std::isfinite(input.mass0) ||
+            !std::isfinite(input.mass1) || input.mass0 < 0.0 || input.mass1 < 0.0) {
+          throw std::invalid_argument("Initial trellis beam has an invalid entry.");
+        }
+        FixedWideStateWords<Words> state_words{};
+        std::copy(input.state_words.begin(), input.state_words.end(), state_words.begin());
+        if (!expected_detectors.empty() && (expected_detectors.size() & 63) != 0) {
+          const uint64_t valid_mask = (uint64_t{1} << (expected_detectors.size() & 63)) - 1;
+          if ((state_words[expected_words - 1] & ~valid_mask) != 0) {
+            throw std::invalid_argument("Initial trellis beam has bits outside the frontier.");
+          }
+        }
+        if (input.mass0 == 0.0 && input.mass1 == 0.0) {
+          continue;
+        }
+        total_mass += input.mass0 + input.mass1;
+        beam_entries.push_back({state_words, input.mass0, input.mass1, 0.0});
+      }
+      if (!std::isfinite(total_mass) || total_mass <= 0.0 || beam_entries.empty()) {
+        throw std::invalid_argument("Initial trellis beam has no finite positive mass.");
+      }
+      for (auto& entry : beam_entries) {
+        entry.mass0 /= total_mass;
+        entry.mass1 /= total_mass;
+      }
+      keep_top_compiled_states(&beam_entries, decoder->config.beam_width, decoder->config.beam_eps,
+                               decoder->config.ranking_mode);
+      normalize_compiled_items(&beam_entries);
+    }
+    decoder->max_beam_size_seen = beam_entries.size();
 
     const bool compute_penalties =
         decoder->config.ranking_mode != TesseractTrellisRankingMode::MassOnly;
-    for (size_t layer_index = 0; layer_index < layers.size(); ++layer_index) {
+    for (size_t layer_index = start_layer; layer_index < stop_layer; ++layer_index) {
       const auto& layer = layers[layer_index];
 
       ensure_pair_bucket_capacity(&pair_buckets, beam_entries.size());
@@ -1136,6 +1196,10 @@ struct CompiledWideKernel final : TesseractTrellisWideKernelBase {
       auto t3 = std::chrono::high_resolution_clock::now();
       decoder->time_truncate_seconds +=
           std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() / 1e6;
+    }
+
+    if (stop_layer != layers.size()) {
+      return;
     }
 
     auto tr0 = std::chrono::high_resolution_clock::now();
@@ -1274,6 +1338,12 @@ TesseractTrellisDecoder::TesseractTrellisDecoder(TesseractTrellisConfig config_)
 }
 
 TESSERACT_HOT void TesseractTrellisDecoder::decode_shot(const std::vector<uint64_t>& detections) {
+  decode_shot_segment(detections, nullptr, 0, SIZE_MAX);
+}
+
+TESSERACT_HOT void TesseractTrellisDecoder::decode_shot_segment(
+    const std::vector<uint64_t>& detections, const TesseractTrellisBeamSnapshot* initial_beam,
+    size_t start_layer, size_t stop_layer) {
   low_confidence_flag = false;
   num_states_expanded = 0;
   num_states_merged = 0;
@@ -1289,7 +1359,7 @@ TESSERACT_HOT void TesseractTrellisDecoder::decode_shot(const std::vector<uint64
   total_mass_obs1 = 0;
   beam_snapshots.clear();
   FinalizeKeptStateStatsOnExit kept_state_stats_guard{this};
-  wide_kernel->decode_shot(this, detections);
+  wide_kernel->decode_shot(this, detections, initial_beam, start_layer, stop_layer);
 
   if (config.verbose) {
     std::cout << "trellis beam_width=" << config.beam_width

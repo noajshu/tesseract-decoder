@@ -78,6 +78,9 @@ struct TesseractTrellisDecoder {
   ~TesseractTrellisDecoder();
 
   void decode_shot(const std::vector<uint64_t>& detections);
+  void decode_shot_segment(const std::vector<uint64_t>& detections,
+                           const TesseractTrellisBeamSnapshot* initial_beam, size_t start_layer,
+                           size_t stop_layer);
   double observable_probability() const;
   std::vector<int> decode(const std::vector<uint64_t>& detections);
   void decode_shots(std::vector<stim::SparseShot>& shots,

@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
 #include <argparse/argparse.hpp>
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -66,10 +67,81 @@ void write_binary(std::ofstream* out, const T& value) {
   out->write(reinterpret_cast<const char*>(&value), sizeof(value));
 }
 
-void write_beam_snapshot_record(
-    std::ofstream* out, size_t shot_index, uint64_t observed_obs_mask,
-    double final_observable_probability, bool low_confidence,
-    const std::vector<TesseractTrellisBeamSnapshot>& snapshots) {
+template <typename T>
+T read_binary(std::ifstream* in, const char* description) {
+  T value{};
+  in->read(reinterpret_cast<char*>(&value), sizeof(value));
+  if (!*in) {
+    throw std::runtime_error(std::string("Truncated beam snapshot while reading ") + description);
+  }
+  return value;
+}
+
+std::vector<TesseractTrellisBeamSnapshot> read_initial_beam_snapshots(const std::string& path,
+                                                                      size_t num_shots,
+                                                                      size_t num_detectors) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in.is_open()) {
+    throw std::invalid_argument("Failed to open " + path);
+  }
+  std::array<char, 8> magic{};
+  in.read(magic.data(), magic.size());
+  constexpr std::array<char, 8> expected_magic = {'T', 'T', 'S', 'N', 'A', 'P', '1', '\0'};
+  if (!in || magic != expected_magic) {
+    throw std::invalid_argument("Initial beam file is not a TTSNAP1 stream.");
+  }
+
+  std::vector<TesseractTrellisBeamSnapshot> result;
+  result.reserve(num_shots);
+  for (size_t expected_shot = 0; expected_shot < num_shots; ++expected_shot) {
+    const uint64_t shot_index = read_binary<uint64_t>(&in, "shot index");
+    read_binary<uint64_t>(&in, "observed observable");
+    read_binary<double>(&in, "final observable probability");
+    const uint64_t low_confidence = read_binary<uint64_t>(&in, "low-confidence flag");
+    const uint64_t num_snapshots = read_binary<uint64_t>(&in, "snapshot count");
+    if (shot_index != expected_shot || low_confidence != 0 || num_snapshots != 1) {
+      throw std::invalid_argument(
+          "Initial beam stream must contain one successful snapshot for every shot in order.");
+    }
+
+    TesseractTrellisBeamSnapshot snapshot;
+    snapshot.layer_index = read_binary<uint64_t>(&in, "layer index");
+    const uint64_t active_count = read_binary<uint64_t>(&in, "active detector count");
+    const uint64_t entry_count = read_binary<uint64_t>(&in, "beam entry count");
+    if (active_count > num_detectors || entry_count > (uint64_t{1} << 32)) {
+      throw std::invalid_argument("Initial beam snapshot has implausible dimensions.");
+    }
+    snapshot.active_detectors.reserve(active_count);
+    for (size_t k = 0; k < active_count; ++k) {
+      const int32_t detector = read_binary<int32_t>(&in, "active detector");
+      if (detector < 0 || static_cast<size_t>(detector) >= num_detectors) {
+        throw std::invalid_argument("Initial beam snapshot names an invalid detector.");
+      }
+      snapshot.active_detectors.push_back(detector);
+    }
+    const size_t words = (active_count + 63) / 64;
+    snapshot.entries.reserve(entry_count);
+    for (size_t entry_index = 0; entry_index < entry_count; ++entry_index) {
+      TesseractTrellisBeamSnapshotEntry entry;
+      entry.state_words.reserve(words);
+      for (size_t word = 0; word < words; ++word) {
+        entry.state_words.push_back(read_binary<uint64_t>(&in, "state word"));
+      }
+      entry.mass0 = read_binary<double>(&in, "logical-zero mass");
+      entry.mass1 = read_binary<double>(&in, "logical-one mass");
+      snapshot.entries.push_back(std::move(entry));
+    }
+    result.push_back(std::move(snapshot));
+  }
+  if (in.peek() != std::char_traits<char>::eof()) {
+    throw std::invalid_argument("Initial beam stream contains extra shot records.");
+  }
+  return result;
+}
+
+void write_beam_snapshot_record(std::ofstream* out, size_t shot_index, uint64_t observed_obs_mask,
+                                double final_observable_probability, bool low_confidence,
+                                const std::vector<TesseractTrellisBeamSnapshot>& snapshots) {
   write_binary(out, static_cast<uint64_t>(shot_index));
   write_binary(out, observed_obs_mask);
   write_binary(out, final_observable_probability);
@@ -117,8 +189,11 @@ struct Args {
   std::string out_fname = "";
   std::string out_format = "";
   std::string obs_probs_out_fname = "";
+  std::string beam_snapshots_in_fname = "";
   std::string beam_snapshots_out_fname = "";
   std::string beam_snapshot_layers = "";
+  size_t segment_start_layer = 0;
+  size_t segment_stop_layer = SIZE_MAX;
 
   std::string dem_out_fname = "";
   std::string stats_out_fname = "";
@@ -162,6 +237,28 @@ struct Args {
     if (beam_snapshots_out_fname.empty() != beam_snapshot_layers.empty()) {
       throw std::invalid_argument(
           "--beam-snapshots-out and --beam-snapshot-layers must be provided together.");
+    }
+    if (beam_snapshots_in_fname.empty() != (segment_start_layer == 0)) {
+      throw std::invalid_argument(
+          "--beam-snapshots-in is required exactly when --segment-start-layer is nonzero.");
+    }
+    if (!beam_snapshots_in_fname.empty() && ranking_mode != "mass") {
+      throw std::invalid_argument("Beam restart currently supports --ranking-mode mass only.");
+    }
+    if (segment_stop_layer != SIZE_MAX) {
+      if (segment_stop_layer <= segment_start_layer) {
+        throw std::invalid_argument("--segment-stop-layer must exceed --segment-start-layer.");
+      }
+      const auto snapshots = parse_size_list(beam_snapshot_layers);
+      if (beam_snapshots_out_fname.empty() ||
+          std::find(snapshots.begin(), snapshots.end(), segment_stop_layer - 1) ==
+              snapshots.end()) {
+        throw std::invalid_argument("A partial segment must snapshot its final processed layer.");
+      }
+      if (!out_fname.empty() || !obs_probs_out_fname.empty()) {
+        throw std::invalid_argument(
+            "A partial segment cannot emit final predictions or observable probabilities.");
+      }
     }
     if (!in_format.empty() && !stim::format_name_to_enum_map().contains(in_format)) {
       throw std::invalid_argument("Invalid format: " + in_format);
@@ -368,10 +465,22 @@ int main(int argc, char* argv[]) {
       .help("Write compact binary intermediate Tesseract-Trellis beam snapshots.")
       .default_value(std::string(""))
       .store_into(args.beam_snapshots_out_fname);
+  program.add_argument("--beam-snapshots-in")
+      .help("Restart each shot from one TTSNAP1 beam record.")
+      .default_value(std::string(""))
+      .store_into(args.beam_snapshots_in_fname);
   program.add_argument("--beam-snapshot-layers")
       .help("Comma-separated zero-based trellis layer indices to snapshot.")
       .default_value(std::string(""))
       .store_into(args.beam_snapshot_layers);
+  program.add_argument("--segment-start-layer")
+      .help("First zero-based trellis layer to process.")
+      .default_value(size_t(0))
+      .store_into(args.segment_start_layer);
+  program.add_argument("--segment-stop-layer")
+      .help("Exclusive zero-based trellis layer limit.")
+      .default_value(size_t(SIZE_MAX))
+      .store_into(args.segment_stop_layer);
   program.add_argument("--dem-out").default_value(std::string("")).store_into(args.dem_out_fname);
   program.add_argument("--stats-out")
       .default_value(std::string(""))
@@ -412,6 +521,11 @@ int main(int argc, char* argv[]) {
   std::vector<stim::SparseShot> shots;
   std::unique_ptr<stim::MeasureRecordWriter> writer;
   args.extract(config, shots, writer);
+  std::vector<TesseractTrellisBeamSnapshot> initial_beams;
+  if (!args.beam_snapshots_in_fname.empty()) {
+    initial_beams = read_initial_beam_snapshots(args.beam_snapshots_in_fname, shots.size(),
+                                                config.dem.count_detectors());
+  }
 
   std::vector<uint64_t> obs_predicted(shots.size());
   std::vector<double> mass0_predicted(shots.size());
@@ -444,7 +558,8 @@ int main(int argc, char* argv[]) {
     beam_snapshot_out.write(magic.data(), magic.size());
   }
 
-  bool has_obs = args.has_observables();
+  const bool completes_decode = args.segment_stop_layer == SIZE_MAX;
+  bool has_obs = args.has_observables() && completes_decode;
   size_t num_errors = 0;
   size_t num_low_confidence = 0;
   double total_time_seconds = 0;
@@ -467,7 +582,10 @@ int main(int argc, char* argv[]) {
         }
         auto& decoder = *decoders[thread_index];
         auto start_time = std::chrono::high_resolution_clock::now();
-        decoder.decode_shot(shots[shot_index].hits);
+        const TesseractTrellisBeamSnapshot* initial_beam =
+            initial_beams.empty() ? nullptr : &initial_beams[shot_index];
+        decoder.decode_shot_segment(shots[shot_index].hits, initial_beam, args.segment_start_layer,
+                                    args.segment_stop_layer);
         auto stop_time = std::chrono::high_resolution_clock::now();
         decoding_time_seconds[shot_index] =
             std::chrono::duration_cast<std::chrono::microseconds>(stop_time - start_time).count() /
@@ -505,10 +623,10 @@ int main(int argc, char* argv[]) {
         }
         total_time_seconds += decoding_time_seconds[shot_index];
         if (beam_snapshot_out.is_open()) {
-          write_beam_snapshot_record(
-              &beam_snapshot_out, shot_index, shots[shot_index].obs_mask_as_u64(),
-              obs_probability_predicted[shot_index], low_confidence[shot_index],
-              beam_snapshots[shot_index]);
+          write_beam_snapshot_record(&beam_snapshot_out, shot_index,
+                                     shots[shot_index].obs_mask_as_u64(),
+                                     obs_probability_predicted[shot_index],
+                                     low_confidence[shot_index], beam_snapshots[shot_index]);
           beam_snapshots[shot_index].clear();
         }
         if (args.print_stats) {
@@ -555,20 +673,26 @@ int main(int argc, char* argv[]) {
 
   bool print_final_stats = true;
   if (!args.stats_out_fname.empty()) {
-    nlohmann::json stats_json = {{"circuit_path", args.circuit_path},
-                                 {"dem_path", args.dem_path},
-                                 {"beam_width", args.beam_width},
-                                 {"beam_eps", args.beam_eps},
-                                 {"future_detcost_scale", args.future_detcost_scale},
-                                 {"ranking_mode", args.ranking_mode},
-                                 {"merge_errors", config.merge_errors},
-                                 {"obs_probs_out", args.obs_probs_out_fname},
-                                 {"sample_seed", args.sample_seed},
-                                 {"sample_num_shots", args.sample_num_shots},
-                                 {"num_threads", args.num_threads},
-                                 {"num_low_confidence", num_low_confidence},
-                                 {"num_shots", shot},
-                                 {"total_time_seconds", total_time_seconds}};
+    nlohmann::json stats_json = {
+        {"circuit_path", args.circuit_path},
+        {"dem_path", args.dem_path},
+        {"beam_width", args.beam_width},
+        {"beam_eps", args.beam_eps},
+        {"future_detcost_scale", args.future_detcost_scale},
+        {"ranking_mode", args.ranking_mode},
+        {"merge_errors", config.merge_errors},
+        {"obs_probs_out", args.obs_probs_out_fname},
+        {"beam_snapshots_in", args.beam_snapshots_in_fname},
+        {"segment_start_layer", args.segment_start_layer},
+        {"segment_stop_layer", args.segment_stop_layer == SIZE_MAX
+                                   ? nlohmann::json(nullptr)
+                                   : nlohmann::json(args.segment_stop_layer)},
+        {"sample_seed", args.sample_seed},
+        {"sample_num_shots", args.sample_num_shots},
+        {"num_threads", args.num_threads},
+        {"num_low_confidence", num_low_confidence},
+        {"num_shots", shot},
+        {"total_time_seconds", total_time_seconds}};
     if (has_obs) {
       stats_json["num_errors"] = num_errors;
     } else {
