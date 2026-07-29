@@ -242,9 +242,6 @@ struct Args {
       throw std::invalid_argument(
           "--beam-snapshots-in is required exactly when --segment-start-layer is nonzero.");
     }
-    if (!beam_snapshots_in_fname.empty() && ranking_mode != "mass") {
-      throw std::invalid_argument("Beam restart currently supports --ranking-mode mass only.");
-    }
     if (segment_stop_layer != SIZE_MAX) {
       if (segment_stop_layer <= segment_start_layer) {
         throw std::invalid_argument("--segment-stop-layer must exceed --segment-start-layer.");

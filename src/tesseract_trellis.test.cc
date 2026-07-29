@@ -202,20 +202,30 @@ TEST(TesseractTrellisDecoderTest, RestartedSegmentMatchesUninterruptedDecode) {
     detector(2, 0, 0) D2
   )DEM");
 
-  TesseractTrellisConfig config;
-  config.dem = dem;
-  config.beam_width = 16;
-  config.snapshot_layer_indices = {0};
-  TesseractTrellisDecoder uninterrupted(config);
-  uninterrupted.decode_shot({});
-  ASSERT_FALSE(uninterrupted.low_confidence_flag);
-  ASSERT_EQ(uninterrupted.beam_snapshots.size(), 1);
+  for (auto ranking_mode :
+       {TesseractTrellisRankingMode::MassOnly, TesseractTrellisRankingMode::FutureDetcostRanked,
+        TesseractTrellisRankingMode::FutureActiveDetcostRanked}) {
+    for (const auto& detections : {std::vector<uint64_t>{}, std::vector<uint64_t>{0, 2}}) {
+      SCOPED_TRACE((int)ranking_mode);
+      SCOPED_TRACE(testing::PrintToString(detections));
+      TesseractTrellisConfig config;
+      config.dem = dem;
+      config.beam_width = 2;
+      config.ranking_mode = ranking_mode;
+      config.snapshot_layer_indices = {0};
+      TesseractTrellisDecoder uninterrupted(config);
+      uninterrupted.decode_shot(detections);
+      ASSERT_FALSE(uninterrupted.low_confidence_flag);
+      ASSERT_EQ(uninterrupted.beam_snapshots.size(), 1);
 
-  TesseractTrellisDecoder restarted(config);
-  restarted.decode_shot_segment({}, &uninterrupted.beam_snapshots[0], 1, SIZE_MAX);
-  ASSERT_FALSE(restarted.low_confidence_flag);
-  EXPECT_EQ(restarted.predicted_obs_mask, uninterrupted.predicted_obs_mask);
-  EXPECT_NEAR(restarted.observable_probability(), uninterrupted.observable_probability(), 1e-12);
+      TesseractTrellisDecoder restarted(config);
+      restarted.decode_shot_segment(detections, &uninterrupted.beam_snapshots[0], 1, SIZE_MAX);
+      ASSERT_FALSE(restarted.low_confidence_flag);
+      EXPECT_EQ(restarted.predicted_obs_mask, uninterrupted.predicted_obs_mask);
+      EXPECT_NEAR(restarted.observable_probability(), uninterrupted.observable_probability(),
+                  1e-12);
+    }
+  }
 }
 
 TEST(TesseractTrellisDecoderTest, RejectsRestartAtWrongBoundary) {

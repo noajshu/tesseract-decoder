@@ -103,6 +103,7 @@ struct CompiledWideLayerTemplate {
   std::vector<double> current_costs;
   std::vector<double> next_costs;
   std::vector<int> next_active_detectors;
+  std::vector<double> next_frontier_costs;
 };
 
 struct BranchPenaltyUpdate {
@@ -496,6 +497,32 @@ double compute_initial_penalty_for_active_detectors(
       return INF;
     }
     total += best;
+  }
+  return total;
+}
+
+template <size_t Words>
+double compute_restart_penalty_for_frontier_state(
+    const FixedWideStateWords<Words>& state_words, const std::vector<int>& active_detectors,
+    const std::vector<double>& active_detector_costs,
+    const std::vector<uint64_t>& actual_detector_words) {
+  if (active_detectors.size() != active_detector_costs.size()) {
+    throw std::runtime_error("Restart frontier detector costs have the wrong size.");
+  }
+  double total = 0.0;
+  for (size_t local = 0; local < active_detectors.size(); ++local) {
+    const bool state_bit = (state_words[local >> 6] & (uint64_t{1} << (local & 63))) != 0;
+    const size_t detector = (size_t)active_detectors[local];
+    const bool target_bit =
+        (actual_detector_words[detector_word_index(detector)] & detector_word_mask(detector)) != 0;
+    if (state_bit == target_bit) {
+      continue;
+    }
+    const double cost = active_detector_costs[local];
+    if (cost == INF) {
+      return INF;
+    }
+    total += cost;
   }
   return total;
 }
@@ -942,6 +969,7 @@ std::vector<CompiledWideLayerTemplate<Words>> compile_wide_layers(
       surviving_masks[current_local >> 6] |= uint64_t{1} << (current_local & 63);
       compiled.next_active_detectors.push_back(layer.current_active_detectors[current_local]);
     }
+    compiled.next_frontier_costs = layer.next_frontier_costs;
     size_t next_offset = 0;
     for (size_t src_word = 0; src_word < Words; ++src_word) {
       compiled.surviving_masks[src_word] = surviving_masks[src_word];
@@ -1042,11 +1070,6 @@ struct CompiledWideKernel final : TesseractTrellisWideKernelBase {
       throw std::invalid_argument(
           "A trellis segment needs an initial beam exactly when its start layer is nonzero.");
     }
-    if (initial_beam != nullptr &&
-        decoder->config.ranking_mode != TesseractTrellisRankingMode::MassOnly) {
-      throw std::invalid_argument("Trellis beam restart currently supports mass ranking only.");
-    }
-
     auto& actual_detector_words = decoder->actual_detector_words_scratch;
     std::fill(actual_detector_words.begin(), actual_detector_words.end(), 0);
     for (uint64_t d : detections) {
@@ -1087,6 +1110,7 @@ struct CompiledWideKernel final : TesseractTrellisWideKernelBase {
         throw std::invalid_argument("Initial trellis beam does not match the segment boundary.");
       }
       const size_t expected_words = num_state_words(expected_detectors.size());
+      const auto& boundary_costs = layers[start_layer - 1].next_frontier_costs;
       if (initial_beam->entries.empty()) {
         throw std::invalid_argument("Initial trellis beam is empty.");
       }
@@ -1109,7 +1133,12 @@ struct CompiledWideKernel final : TesseractTrellisWideKernelBase {
           continue;
         }
         total_mass += input.mass0 + input.mass1;
-        beam_entries.push_back({state_words, input.mass0, input.mass1, 0.0});
+        double restart_penalty = 0.0;
+        if (decoder->config.ranking_mode != TesseractTrellisRankingMode::MassOnly) {
+          restart_penalty = compute_restart_penalty_for_frontier_state(
+              state_words, expected_detectors, boundary_costs, actual_detector_words);
+        }
+        beam_entries.push_back({state_words, input.mass0, input.mass1, restart_penalty});
       }
       if (!std::isfinite(total_mass) || total_mass <= 0.0 || beam_entries.empty()) {
         throw std::invalid_argument("Initial trellis beam has no finite positive mass.");
