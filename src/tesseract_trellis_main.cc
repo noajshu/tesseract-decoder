@@ -86,9 +86,11 @@ std::vector<TesseractTrellisBeamSnapshot> read_initial_beam_snapshots(const std:
   }
   std::array<char, 8> magic{};
   in.read(magic.data(), magic.size());
-  constexpr std::array<char, 8> expected_magic = {'T', 'T', 'S', 'N', 'A', 'P', '1', '\0'};
-  if (!in || magic != expected_magic) {
-    throw std::invalid_argument("Initial beam file is not a TTSNAP1 stream.");
+  constexpr std::array<char, 8> version_1_magic = {'T', 'T', 'S', 'N', 'A', 'P', '1', '\0'};
+  constexpr std::array<char, 8> version_2_magic = {'T', 'T', 'S', 'N', 'A', 'P', '2', '\0'};
+  const bool has_future_detcost_penalty = magic == version_2_magic;
+  if (!in || (magic != version_1_magic && magic != version_2_magic)) {
+    throw std::invalid_argument("Initial beam file is not a recognized TTSNAP stream.");
   }
 
   std::vector<TesseractTrellisBeamSnapshot> result;
@@ -129,6 +131,9 @@ std::vector<TesseractTrellisBeamSnapshot> read_initial_beam_snapshots(const std:
       }
       entry.mass0 = read_binary<double>(&in, "logical-zero mass");
       entry.mass1 = read_binary<double>(&in, "logical-one mass");
+      if (has_future_detcost_penalty) {
+        entry.future_detcost_penalty = read_binary<double>(&in, "future detcost penalty");
+      }
       snapshot.entries.push_back(std::move(entry));
     }
     result.push_back(std::move(snapshot));
@@ -160,6 +165,7 @@ void write_beam_snapshot_record(std::ofstream* out, size_t shot_index, uint64_t 
       }
       write_binary(out, entry.mass0);
       write_binary(out, entry.mass1);
+      write_binary(out, entry.future_detcost_penalty);
     }
   }
   if (!*out) {
@@ -463,7 +469,7 @@ int main(int argc, char* argv[]) {
       .default_value(std::string(""))
       .store_into(args.beam_snapshots_out_fname);
   program.add_argument("--beam-snapshots-in")
-      .help("Restart each shot from one TTSNAP1 beam record.")
+      .help("Restart each shot from one TTSNAP beam record.")
       .default_value(std::string(""))
       .store_into(args.beam_snapshots_in_fname);
   program.add_argument("--beam-snapshot-layers")
@@ -551,7 +557,7 @@ int main(int argc, char* argv[]) {
     if (!beam_snapshot_out.is_open()) {
       throw std::invalid_argument("Failed to open " + args.beam_snapshots_out_fname);
     }
-    constexpr std::array<char, 8> magic = {'T', 'T', 'S', 'N', 'A', 'P', '1', '\0'};
+    constexpr std::array<char, 8> magic = {'T', 'T', 'S', 'N', 'A', 'P', '2', '\0'};
     beam_snapshot_out.write(magic.data(), magic.size());
   }
 

@@ -182,6 +182,8 @@ TEST(TesseractTrellisDecoderTest, CapturesNormalizedIntermediateBeam) {
   double logical_one = 0;
   for (const auto& entry : snapshot.entries) {
     ASSERT_EQ(entry.state_words.size(), 1);
+    EXPECT_TRUE(std::isfinite(entry.future_detcost_penalty));
+    EXPECT_GE(entry.future_detcost_penalty, 0.0);
     total += entry.mass0 + entry.mass1;
     logical_one += entry.mass1;
   }

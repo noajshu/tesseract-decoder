@@ -1052,6 +1052,7 @@ struct CompiledWideKernel final : TesseractTrellisWideKernelBase {
           std::vector<uint64_t>(item.state_words.begin(), item.state_words.begin() + words),
           item.mass0,
           item.mass1,
+          item.penalty,
       });
     }
     decoder->beam_snapshots.push_back(std::move(snapshot));

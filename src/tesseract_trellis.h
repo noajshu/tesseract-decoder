@@ -53,6 +53,7 @@ struct TesseractTrellisBeamSnapshotEntry {
   std::vector<uint64_t> state_words;
   double mass0 = 0;
   double mass1 = 0;
+  double future_detcost_penalty = 0;
 };
 
 struct TesseractTrellisBeamSnapshot {
